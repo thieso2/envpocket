@@ -32,11 +32,21 @@ import CommonCrypto
 
 class EnvPocket {
     private let keychain: KeychainProtocol
+    private let vault: String?
     private let prefix = "envpocket:"
     private let historyPrefix = "envpocket-history:"
-    
-    init(keychain: KeychainProtocol = RealKeychain()) {
+
+    init(keychain: KeychainProtocol = RealKeychain(), vault: String? = nil) {
         self.keychain = keychain
+        self.vault = vault
+    }
+
+    private func validateVaultName(_ vault: String?) -> Bool {
+        guard let vault = vault else { return true }
+        guard vault.count >= 1 && vault.count <= 100 else { return false }
+        // Allow: letters, numbers, /, _, -
+        let validPattern = "^[a-zA-Z0-9/_-]+$"
+        return vault.range(of: validPattern, options: .regularExpression) != nil
     }
     
     private func getDateFormatter() -> ISO8601DateFormatter {
@@ -44,13 +54,27 @@ class EnvPocket {
     }
     
     private func prefixedKey(_ key: String) -> String {
+        if let vault = vault {
+            return prefix + vault + "::" + key
+        }
         return prefix + key
     }
-    
+
     private func historyKey(_ key: String, timestamp: Date) -> String {
+        if let vault = vault {
+            return historyPrefix + vault + "::" + key + ":" + getDateFormatter().string(from: timestamp)
+        }
         return historyPrefix + key + ":" + getDateFormatter().string(from: timestamp)
     }
-    
+
+    private func parseVaultAndKey(_ accountWithoutPrefix: String) -> (vault: String?, key: String) {
+        let components = accountWithoutPrefix.components(separatedBy: "::")
+        if components.count == 2 {
+            return (components[0], components[1])
+        }
+        return (nil, accountWithoutPrefix)
+    }
+
     func saveFile(key: String, filePath: String) -> Bool {
         let account = prefixedKey(key)
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
@@ -237,21 +261,30 @@ class EnvPocket {
         guard status == errSecSuccess else {
             return []
         }
-        
+
         var matchedKeys: [String] = []
-        
+
         for item in items {
             if let account = item[kSecAttrAccount as String] as? String,
                account.hasPrefix(prefix) && !account.hasPrefix(historyPrefix) {
-                let key = String(account.dropFirst(prefix.count))
-                
+
+                let withoutPrefix = String(account.dropFirst(prefix.count))
+                let (parsedVault, parsedKey) = parseVaultAndKey(withoutPrefix)
+
+                // Filter by vault context
+                if let vault = vault {
+                    guard parsedVault == vault else { continue }
+                } else {
+                    guard parsedVault == nil else { continue }  // Only non-vaulted
+                }
+
                 // Check if key matches pattern
-                if matchesPattern(key, pattern: pattern) {
-                    matchedKeys.append(key)
+                if matchesPattern(parsedKey, pattern: pattern) {
+                    matchedKeys.append(parsedKey)
                 }
             }
         }
-        
+
         return matchedKeys.sorted()
     }
     
@@ -330,11 +363,19 @@ class EnvPocket {
         // Delete all history entries for this key
         let (items, historyStatus) = keychain.list()
 
+        // Construct the history prefix pattern based on vault
+        let historyPattern: String
+        if let vault = vault {
+            historyPattern = historyPrefix + vault + "::" + key + ":"
+        } else {
+            historyPattern = historyPrefix + key + ":"
+        }
+
         var historyDeleted = 0
         if historyStatus == errSecSuccess {
             for item in items {
                 if let account = item[kSecAttrAccount as String] as? String,
-                   account.hasPrefix(historyPrefix + key + ":") {
+                   account.hasPrefix(historyPattern) {
                     if keychain.delete(account: account) == errSecSuccess {
                         historyDeleted += 1
                     }
@@ -362,12 +403,21 @@ class EnvPocket {
             return
         }
 
-        var keyInfo: [String: (current: Date?, historyCount: Int, filePath: String?)] = [:]
+        var keyInfo: [String: (current: Date?, historyCount: Int, filePath: String?, vault: String?)] = [:]
 
         for item in items {
             if let account = item[kSecAttrAccount as String] as? String {
                 if account.hasPrefix(prefix) && !account.hasPrefix(historyPrefix) {
-                    let key = String(account.dropFirst(prefix.count))
+                    let withoutPrefix = String(account.dropFirst(prefix.count))
+                    let (parsedVault, parsedKey) = parseVaultAndKey(withoutPrefix)
+
+                    // Filter by vault context
+                    if let vault = vault {
+                        guard parsedVault == vault else { continue }
+                    } else {
+                        guard parsedVault == nil else { continue }  // Only non-vaulted
+                    }
+
                     // Try to extract date from comment
                     var modDate: Date? = nil
                     if let comment = item[kSecAttrComment as String] as? String,
@@ -379,21 +429,53 @@ class EnvPocket {
                     // Extract file path from label
                     let filePath = item[kSecAttrLabel as String] as? String
 
-                    if keyInfo[key] == nil {
-                        keyInfo[key] = (current: modDate, historyCount: 0, filePath: filePath)
+                    if keyInfo[parsedKey] == nil {
+                        keyInfo[parsedKey] = (current: modDate, historyCount: 0, filePath: filePath, vault: parsedVault)
                     } else {
-                        keyInfo[key]?.current = modDate
-                        keyInfo[key]?.filePath = filePath
+                        keyInfo[parsedKey]?.current = modDate
+                        keyInfo[parsedKey]?.filePath = filePath
                     }
                 } else if account.hasPrefix(historyPrefix) {
-                    // Extract key from history entry
+                    // Extract key from history entry: envpocket-history:[vault::]key:timestamp
                     let withoutPrefix = String(account.dropFirst(historyPrefix.count))
-                    if let colonIndex = withoutPrefix.firstIndex(of: ":") {
-                        let key = String(withoutPrefix[..<colonIndex])
-                        if keyInfo[key] == nil {
-                            keyInfo[key] = (current: nil, historyCount: 1, filePath: nil)
-                        } else {
-                            keyInfo[key]?.historyCount += 1
+
+                    // Check for vault separator first
+                    if withoutPrefix.contains("::") {
+                        let parts = withoutPrefix.components(separatedBy: "::")
+                        if parts.count == 2 {
+                            let parsedVault = parts[0]
+                            let keyAndTimestamp = parts[1]
+
+                            // Filter by vault context
+                            if let vault = vault {
+                                guard parsedVault == vault else { continue }
+                            } else {
+                                continue  // Skip vaulted history when not in vault mode
+                            }
+
+                            // Extract key from keyAndTimestamp
+                            if let colonIndex = keyAndTimestamp.firstIndex(of: ":") {
+                                let key = String(keyAndTimestamp[..<colonIndex])
+                                if keyInfo[key] == nil {
+                                    keyInfo[key] = (current: nil, historyCount: 1, filePath: nil, vault: parsedVault)
+                                } else {
+                                    keyInfo[key]?.historyCount += 1
+                                }
+                            }
+                        }
+                    } else {
+                        // No vault separator, this is a non-vaulted history entry
+                        if vault != nil {
+                            continue  // Skip non-vaulted history when in vault mode
+                        }
+
+                        if let colonIndex = withoutPrefix.firstIndex(of: ":") {
+                            let key = String(withoutPrefix[..<colonIndex])
+                            if keyInfo[key] == nil {
+                                keyInfo[key] = (current: nil, historyCount: 1, filePath: nil, vault: nil)
+                            } else {
+                                keyInfo[key]?.historyCount += 1
+                            }
                         }
                     }
                 }
@@ -431,30 +513,75 @@ class EnvPocket {
             UserMessage.info("\nUse 'envpocket history <key>' to see version history").display()
         }
     }
-    
+
+    func listVaults() {
+        let (items, status) = keychain.list()
+        guard status == errSecSuccess else {
+            UserMessage.listError(status).display()
+            return
+        }
+
+        var vaults: Set<String> = []
+        var unvaultedCount = 0
+
+        for item in items {
+            if let account = item[kSecAttrAccount as String] as? String,
+               account.hasPrefix(prefix) && !account.hasPrefix(historyPrefix) {
+                let withoutPrefix = String(account.dropFirst(prefix.count))
+                let (parsedVault, _) = parseVaultAndKey(withoutPrefix)
+
+                if let vault = parsedVault {
+                    vaults.insert(vault)
+                } else {
+                    unvaultedCount += 1
+                }
+            }
+        }
+
+        if vaults.isEmpty && unvaultedCount == 0 {
+            print("No vaults or entries found")
+        } else {
+            print("Available vaults:")
+            for vault in vaults.sorted() {
+                print("  • \(vault)")
+            }
+            if unvaultedCount > 0 {
+                print("  • (default) - \(unvaultedCount) unvaulted entr\(unvaultedCount == 1 ? "y" : "ies")")
+            }
+        }
+    }
+
     private func getHistoryForKey(_ key: String) -> [String] {
         let (items, status) = keychain.list()
-        
+
         guard status == errSecSuccess else {
             return []
         }
-        
+
         var historyAccounts: [(account: String, date: Date)] = []
-        
+
+        // Construct the history prefix pattern based on vault
+        let historyPattern: String
+        if let vault = vault {
+            historyPattern = historyPrefix + vault + "::" + key + ":"
+        } else {
+            historyPattern = historyPrefix + key + ":"
+        }
+
         for item in items {
             if let account = item[kSecAttrAccount as String] as? String,
-               account.hasPrefix(historyPrefix + key + ":") {
+               account.hasPrefix(historyPattern) {
                 // Extract timestamp from account string
-                let timestampStr = String(account.dropFirst((historyPrefix + key + ":").count))
+                let timestampStr = String(account.dropFirst(historyPattern.count))
                 if let date = getDateFormatter().date(from: timestampStr) {
                     historyAccounts.append((account: account, date: date))
                 }
             }
         }
-        
+
         // Sort by date descending (newest first)
         historyAccounts.sort { $0.date > $1.date }
-        
+
         return historyAccounts.map { $0.account }
     }
     
@@ -533,6 +660,9 @@ class EnvPocket {
 
         // Create metadata dictionary
         var metadata: [String: Any] = ["key": key]
+        if let vault = vault {
+            metadata["vault"] = vault
+        }
         if let filePath = attributes?[kSecAttrLabel as String] as? String {
             metadata["originalPath"] = filePath
         }
@@ -677,7 +807,13 @@ class EnvPocket {
                        let histData = Data(base64Encoded: histDataString),
                        let timestamp = histEntry["timestamp"] as? String {
 
-                        let historyAccount = historyPrefix + key + ":" + timestamp
+                        // Construct history account with vault if present
+                        let historyAccount: String
+                        if let vault = vault {
+                            historyAccount = historyPrefix + vault + "::" + key + ":" + timestamp
+                        } else {
+                            historyAccount = historyPrefix + key + ":" + timestamp
+                        }
                         let histPath = histEntry["originalPath"] as? String
 
                         let histStatus = keychain.save(

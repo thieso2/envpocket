@@ -17,7 +17,23 @@ import ArgumentParser
 struct EnvPocketCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "envpocket",
-        abstract: "Secure environment file storage for macOS using the system keychain",
+        abstract: "Secure environment file storage with vault support for macOS keychain",
+        discussion: """
+        VAULTS:
+          Organize keys into isolated namespaces using vaults.
+
+          Set vault via environment variable:
+            export EP_VAULT=prod/sql
+            envpocket save database-url .env
+
+          Or use --vault flag on any command:
+            envpocket save api-key .env --vault staging/api
+            envpocket list --vault prod
+            envpocket list --vaults  # List all vaults
+
+          Vault names support nesting with / (e.g., prod/sql/onprem)
+          Keys in different vaults are completely isolated.
+        """,
         version: "0.5.0",
         subcommands: [
             Save.self,
@@ -73,8 +89,13 @@ extension EnvPocketCommand {
                   completion: .file())
         var filePath: String
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
             let success = envPocket.saveFile(key: key, filePath: filePath)
             if !success {
                 throw ExitCode.failure
@@ -97,8 +118,13 @@ extension EnvPocketCommand {
         @Argument(help: "Value to store (omit to be prompted securely)")
         var value: String?
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
 
             let finalValue: String
             if let providedValue = value {
@@ -143,8 +169,13 @@ extension EnvPocketCommand {
         @Flag(name: .shortAndLong, help: "Force overwrite without confirmation")
         var force: Bool = false
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
             let success = envPocket.getFile(
                 key: key,
                 outputPath: outputPath,
@@ -172,8 +203,13 @@ extension EnvPocketCommand {
         @Flag(name: .shortAndLong, help: "Force deletion without confirmation")
         var force: Bool = false
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
             let success = envPocket.deleteFile(key: key, force: force)
             if !success {
                 throw ExitCode.failure
@@ -187,12 +223,25 @@ extension EnvPocketCommand {
 extension EnvPocketCommand {
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
-            abstract: "List all stored keys with metadata"
+            abstract: "List all stored keys with metadata (use --vaults to list all vaults)"
         )
 
+        @Option(name: .long, help: "Filter by vault name")
+        var vault: String?
+
+        @Flag(name: .long, help: "List all vaults")
+        var vaults: Bool = false
+
         func run() throws {
-            let envPocket = EnvPocket()
-            envPocket.listKeys()
+            if vaults {
+                let envPocket = EnvPocket()
+                envPocket.listVaults()
+            } else {
+                // Resolve: CLI flag > EP_VAULT env var > nil
+                let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+                let envPocket = EnvPocket(vault: resolvedVault)
+                envPocket.listKeys()
+            }
         }
     }
 }
@@ -208,8 +257,13 @@ extension EnvPocketCommand {
         @Argument(help: "Key name to show history for")
         var key: String
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
             envPocket.showHistory(key: key)
         }
     }
@@ -233,8 +287,13 @@ extension EnvPocketCommand {
         @Option(name: .long, help: "Password for encryption (omit to be prompted)")
         var password: String?
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
 
             // Get password if not provided
             let finalPassword: String
@@ -302,8 +361,13 @@ extension EnvPocketCommand {
         @Option(name: .long, help: "Password for decryption (omit to be prompted)")
         var password: String?
 
+        @Option(name: .long, help: "Vault name (supports nesting: prod/sql/onprem)")
+        var vault: String?
+
         func run() throws {
-            let envPocket = EnvPocket()
+            // Resolve: CLI flag > EP_VAULT env var > nil
+            let resolvedVault = vault ?? ProcessInfo.processInfo.environment["EP_VAULT"]
+            let envPocket = EnvPocket(vault: resolvedVault)
 
             // Get password if not provided
             let finalPassword: String

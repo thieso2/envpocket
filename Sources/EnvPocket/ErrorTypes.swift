@@ -218,4 +218,8 @@ enum UserMessage {
     static func serializationError() -> UserMessage {
         .error("Failed to serialize export data")
     }
+
+    static func vaultValidationError() -> UserMessage {
+        .error("Invalid vault name. Vault names must be 1-100 characters and contain only letters, numbers, /, _, or -")
+    }
 }

@@ -12,6 +12,7 @@ envpocket is a macOS command-line utility that securely stores environment files
 - Automatic version history on updates
 - Encrypted team sharing with export/import
 - Wildcard pattern matching for bulk operations
+- **Vault support** for organizing keys into namespaces (e.g., `prod/sql/onprem`)
 
 ## Build and Development Commands
 
@@ -142,14 +143,21 @@ Four-file modular architecture for separation of concerns:
 ## Storage Architecture
 
 ### Keychain Structure
-- **Current Version**: `envpocket:<key>`
-- **History Versions**: `envpocket-history:<key>:<ISO8601-timestamp>`
+- **Current Version**: `envpocket:[vault::]<key>` (vault is optional)
+- **History Versions**: `envpocket-history:[vault::]<key>:<ISO8601-timestamp>`
 - **Item Class**: `kSecClassGenericPassword`
+- **Vault Separator**: `::` (double colon) separates vault from key
 - **Attributes**:
-  - `kSecAttrAccount`: Prefixed key name (account identifier)
+  - `kSecAttrAccount`: Prefixed key name (account identifier) with optional vault namespace
   - `kSecValueData`: File/value contents as binary data (UTF-8 encoded)
   - `kSecAttrLabel`: Original file path OR `"(direct value)"` for set command
   - `kSecAttrComment`: Last modification timestamp (ISO8601 format)
+
+**Examples:**
+- No vault: `envpocket:api-key`
+- With vault: `envpocket:prod/sql::database-url`
+- History without vault: `envpocket-history:api-key:2025-01-17T10:30:00Z`
+- History with vault: `envpocket-history:prod/sql::database-url:2025-01-17T10:30:00Z`
 
 ### History Management
 - On update: Current version moved to history with current timestamp
@@ -191,6 +199,75 @@ Four-file modular architecture for separation of concerns:
 - Single character wildcard: `envpocket delete v? -f` (matches v1, v2, not v10)
 - Use `-f` flag to skip confirmation prompt
 - Cascade deletes all history entries
+
+### Vaults - Organizing Keys into Namespaces
+
+Vaults allow you to organize keys into isolated namespaces. This is useful for separating environments (prod/staging/dev) or organizing by service/team.
+
+**Key Concepts:**
+- Vaults create isolated namespaces - keys in different vaults don't collide
+- Supports unlimited nesting with `/` separator (e.g., `prod/sql/onprem`)
+- Specified via `--vault` flag or `EP_VAULT` environment variable
+- 100% backwards compatible - no vault means default namespace
+
+**Vault Naming Rules:**
+- Length: 1-100 characters
+- Allowed characters: `a-zA-Z0-9/_-` (letters, numbers, slash, underscore, hyphen)
+- Examples: `prod`, `staging/api`, `dev/frontend/v2`, `team-a/db/mysql`
+
+**Storage Structure:**
+- With vault: `envpocket:prod/sql/onprem::database-url`
+- Without vault: `envpocket:database-url` (backwards compatible)
+- History with vault: `envpocket-history:prod/sql/onprem::database-url:2025-01-17T10:30:00Z`
+- Separator: `::` (double colon) allows `/` in vault names
+
+**Usage Examples:**
+
+```bash
+# Set vault via environment variable (applies to all commands)
+export EP_VAULT=prod/sql/onprem
+envpocket save database-url .env.database
+envpocket get database-url -
+envpocket list
+envpocket history database-url
+
+# Or use --vault flag (overrides EP_VAULT)
+envpocket save api-key .env --vault staging/api/v2
+envpocket get api-key - --vault staging/api/v2
+
+# List all vaults
+envpocket list --vaults
+
+# List keys in specific vault
+envpocket list --vault prod/sql
+
+# Delete with vaults (only deletes within the vault)
+envpocket delete test-* -f --vault staging
+
+# Export/import preserves vault context
+envpocket export db-url db.envpocket --vault prod
+envpocket import db-url db.envpocket --vault staging  # Import to different vault
+```
+
+**Vault Isolation:**
+```bash
+# Same key in different vaults are completely separate
+export EP_VAULT=prod
+envpocket set api-key "prod-secret-123"
+
+export EP_VAULT=staging
+envpocket set api-key "staging-secret-456"
+
+envpocket get api-key - --vault prod      # Output: prod-secret-123
+envpocket get api-key - --vault staging   # Output: staging-secret-456
+```
+
+**When to Use Vaults:**
+- **Environment separation**: `prod`, `staging`, `dev`
+- **Service organization**: `service-a/db`, `service-b/api`
+- **Team isolation**: `team-frontend`, `team-backend`
+- **Multi-region**: `prod/us-east`, `prod/eu-west`
+- **Nested hierarchies**: `org/team/env/service`
 
 ## Common Development Patterns
 

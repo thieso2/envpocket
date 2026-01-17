@@ -306,3 +306,244 @@ func testMatchKeysWithComplexPattern() {
     #expect(matches.contains("app-prod-1"))
     #expect(!matches.contains("db-dev-1"))
 }
+
+// MARK: - Vault Tests
+
+@Test("Save and get with nested vault")
+func testNestedVault() {
+    let env = TestEnvironment()
+    let vaultedEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod/sql/onprem")
+
+    let success = vaultedEnvPocket.saveFile(key: "test-key", filePath: env.testFilePath)
+    #expect(success == true)
+
+    // Verify key is in vault namespace
+    let (data, _, status) = env.mockKeychain.load(account: "envpocket:prod/sql/onprem::test-key")
+    #expect(status == errSecSuccess)
+    #expect(data != nil)
+
+    // Verify get works with vault
+    let outputPath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("output-\(UUID().uuidString).env").path
+    defer { try? FileManager.default.removeItem(atPath: outputPath) }
+
+    let getSuccess = vaultedEnvPocket.getFile(key: "test-key", outputPath: outputPath)
+    #expect(getSuccess == true)
+
+    let retrievedContent = try? String(contentsOfFile: outputPath)
+    #expect(retrievedContent == env.testContent)
+}
+
+@Test("Vault isolation")
+func testVaultIsolation() {
+    let env = TestEnvironment()
+
+    // Save to prod vault
+    let prodEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+    _ = prodEnvPocket.saveFile(key: "api-key", filePath: env.testFilePath)
+
+    // Save to staging vault
+    let stagingEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "staging")
+    _ = stagingEnvPocket.saveFile(key: "api-key", filePath: env.testFilePath)
+
+    // Verify isolation - both vaults have the same key but different namespaces
+    let (prodData, _, prodStatus) = env.mockKeychain.load(account: "envpocket:prod::api-key")
+    #expect(prodStatus == errSecSuccess)
+
+    let (stagingData, _, stagingStatus) = env.mockKeychain.load(account: "envpocket:staging::api-key")
+    #expect(stagingStatus == errSecSuccess)
+
+    // Verify matchKeys respects vault context
+    let prodMatches = prodEnvPocket.matchKeys(pattern: "*")
+    let stagingMatches = stagingEnvPocket.matchKeys(pattern: "*")
+
+    #expect(prodMatches == ["api-key"])
+    #expect(stagingMatches == ["api-key"])
+}
+
+@Test("Backwards compatibility - no vault")
+func testBackwardsCompatibility() {
+    let env = TestEnvironment()
+
+    // Save without vault
+    env.envPocket.saveFile(key: "legacy-key", filePath: env.testFilePath)
+
+    // Should be saved without vault separator
+    let (data, _, status) = env.mockKeychain.load(account: "envpocket:legacy-key")
+    #expect(status == errSecSuccess)
+    #expect(data != nil)
+
+    // Non-vaulted envPocket should only see non-vaulted keys
+    let matches = env.envPocket.matchKeys(pattern: "*")
+    #expect(matches.contains("legacy-key"))
+
+    // Vaulted envPocket should not see non-vaulted keys
+    let vaultedEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+    let vaultedMatches = vaultedEnvPocket.matchKeys(pattern: "*")
+    #expect(!vaultedMatches.contains("legacy-key"))
+}
+
+@Test("Vault filtering with matchKeys")
+func testVaultFilteringWithMatchKeys() {
+    let env = TestEnvironment()
+
+    // Save to different vaults
+    let prodEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+    _ = prodEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+    _ = prodEnvPocket.saveFile(key: "api-key", filePath: env.testFilePath)
+
+    let stagingEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "staging")
+    _ = stagingEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Save non-vaulted
+    _ = env.envPocket.saveFile(key: "local-key", filePath: env.testFilePath)
+
+    // Verify prod vault only shows prod keys
+    let prodMatches = prodEnvPocket.matchKeys(pattern: "*")
+    #expect(prodMatches.count == 2)
+    #expect(prodMatches.contains("db-url"))
+    #expect(prodMatches.contains("api-key"))
+
+    // Verify staging vault only shows staging keys
+    let stagingMatches = stagingEnvPocket.matchKeys(pattern: "*")
+    #expect(stagingMatches.count == 1)
+    #expect(stagingMatches.contains("db-url"))
+
+    // Verify non-vaulted only shows non-vaulted keys
+    let nonVaultedMatches = env.envPocket.matchKeys(pattern: "*")
+    #expect(nonVaultedMatches.count == 1)
+    #expect(nonVaultedMatches.contains("local-key"))
+}
+
+@Test("List vaults")
+func testListVaults() {
+    let env = TestEnvironment()
+
+    // Create entries in different vaults
+    let prodEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+    _ = prodEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    let stagingEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "staging/api")
+    _ = stagingEnvPocket.saveFile(key: "api-key", filePath: env.testFilePath)
+
+    // Save non-vaulted
+    _ = env.envPocket.saveFile(key: "local-key", filePath: env.testFilePath)
+
+    // Verify vaults are listed
+    // Note: listVaults() prints to stdout, so we can't easily verify the output
+    // But we can verify the keychain contains the expected vault namespaces
+    let (items, _) = env.mockKeychain.list()
+    let vaultedKeys = items.filter { item in
+        if let account = item[kSecAttrAccount as String] as? String,
+           account.hasPrefix("envpocket:") && !account.hasPrefix("envpocket-history:") {
+            return account.contains("::")
+        }
+        return false
+    }
+    #expect(vaultedKeys.count == 2)
+}
+
+@Test("History with vaults")
+func testHistoryWithVaults() {
+    let env = TestEnvironment()
+    let vaultedEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+
+    // Save initial version
+    _ = vaultedEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Update to create history
+    let newContent = "UPDATED=true\n"
+    try? newContent.write(toFile: env.testFilePath, atomically: true, encoding: .utf8)
+
+    Thread.sleep(forTimeInterval: 0.1) // Ensure different timestamp
+    _ = vaultedEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Verify history exists in vault namespace
+    let (items, _) = env.mockKeychain.list()
+    let historyItems = items.filter { item in
+        if let account = item[kSecAttrAccount as String] as? String {
+            return account.hasPrefix("envpocket-history:prod::db-url:")
+        }
+        return false
+    }
+    #expect(historyItems.count == 1)
+}
+
+@Test("Delete with vaults")
+func testDeleteWithVaults() {
+    let env = TestEnvironment()
+
+    // Save to vault
+    let vaultedEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+    _ = vaultedEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Create history
+    let newContent = "UPDATED=true\n"
+    try? newContent.write(toFile: env.testFilePath, atomically: true, encoding: .utf8)
+    Thread.sleep(forTimeInterval: 0.1)
+    _ = vaultedEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Delete
+    let deleteSuccess = vaultedEnvPocket.deleteFile(key: "db-url", force: true)
+    #expect(deleteSuccess == true)
+
+    // Verify current and history are deleted
+    let (data, _, status) = env.mockKeychain.load(account: "envpocket:prod::db-url")
+    #expect(status == errSecItemNotFound)
+
+    let (items, _) = env.mockKeychain.list()
+    let historyItems = items.filter { item in
+        if let account = item[kSecAttrAccount as String] as? String {
+            return account.hasPrefix("envpocket-history:prod::db-url:")
+        }
+        return false
+    }
+    #expect(historyItems.count == 0)
+}
+
+@Test("Set value with vault")
+func testSetValueWithVault() {
+    let env = TestEnvironment()
+    let vaultedEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod/secrets")
+
+    let success = vaultedEnvPocket.setValue(key: "api-token", value: "secret-123")
+    #expect(success == true)
+
+    // Verify value is in vault namespace
+    let (data, attributes, status) = env.mockKeychain.load(account: "envpocket:prod/secrets::api-token")
+    #expect(status == errSecSuccess)
+    #expect(String(data: data!, encoding: .utf8) == "secret-123")
+    #expect(attributes?[kSecAttrLabel as String] as? String == "(direct value)")
+}
+
+@Test("Export and import with vault")
+func testExportImportWithVault() {
+    let env = TestEnvironment()
+    let prodEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "prod")
+
+    // Save to prod vault
+    _ = prodEnvPocket.saveFile(key: "db-url", filePath: env.testFilePath)
+
+    // Export from prod vault
+    guard let exportedData = prodEnvPocket.exportEncrypted(key: "db-url", password: "test123") else {
+        Issue.record("Export failed")
+        return
+    }
+
+    // Clear keychain
+    env.mockKeychain.clear()
+
+    // Import to staging vault (different vault)
+    let stagingEnvPocket = EnvPocket(keychain: env.mockKeychain, vault: "staging")
+    let importSuccess = stagingEnvPocket.importEncrypted(key: "db-url", encryptedData: exportedData, password: "test123")
+    #expect(importSuccess == true)
+
+    // Verify it's in staging vault namespace
+    let (data, _, status) = env.mockKeychain.load(account: "envpocket:staging::db-url")
+    #expect(status == errSecSuccess)
+    #expect(data != nil)
+
+    // Verify it's not in prod vault
+    let (_, _, prodStatus) = env.mockKeychain.load(account: "envpocket:prod::db-url")
+    #expect(prodStatus == errSecItemNotFound)
+}

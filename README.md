@@ -11,6 +11,7 @@ A secure command-line utility for macOS that stores environment files in the sys
 - **Atomic Operations**: Ensures data consistency during updates
 - **Clean Namespace**: All keychain entries are prefixed to avoid conflicts
 - **Team Sharing**: Export/import encrypted files for secure team collaboration
+- **Vault Support**: Organize keys into isolated namespaces (e.g., `prod/sql/onprem`) for multi-environment workflows
 
 ## Installation
 
@@ -130,6 +131,36 @@ Remove a file and all its versions from the keychain:
 envpocket delete myapp-prod
 ```
 
+### Using Vaults for Organization
+
+Vaults allow you to organize keys into isolated namespaces, perfect for separating environments or services:
+
+```bash
+# Set vault via environment variable (applies to all commands)
+export EP_VAULT=prod/sql
+envpocket save database-url .env.database
+envpocket get database-url -
+
+# Or use --vault flag (overrides EP_VAULT)
+envpocket save api-key .env --vault staging/api/v2
+envpocket get api-key - --vault staging/api/v2
+
+# List all vaults
+envpocket list --vaults
+
+# List keys in a specific vault
+envpocket list --vault prod/sql
+
+# Delete only within a vault
+envpocket delete test-* -f --vault staging
+```
+
+**Vault Features:**
+- **Isolated Namespaces**: Keys in different vaults are completely separate
+- **Nested Support**: Use `/` for hierarchy (e.g., `prod/sql/onprem`)
+- **Backwards Compatible**: No vault means default namespace
+- **Per-Command**: Via `--vault` flag or `EP_VAULT` environment variable
+
 ### Export for Team Sharing
 
 Export an encrypted version of your environment file:
@@ -194,6 +225,29 @@ envpocket set openai-key "sk-proj-new-key..."
 envpocket history openai-key
 ```
 
+### Quick Environment Switching with Vaults
+
+```bash
+# Store credentials for different environments
+envpocket set db-url "postgres://prod-host/db" --vault prod
+envpocket set db-url "postgres://staging-host/db" --vault staging
+envpocket set db-url "postgres://localhost/db" --vault dev
+
+# Switch environments by changing vault
+export EP_VAULT=prod
+./run-migrations.sh  # Uses production database
+
+export EP_VAULT=staging
+./run-migrations.sh  # Uses staging database
+
+export EP_VAULT=dev
+./run-migrations.sh  # Uses local development database
+
+# In your scripts, retrieve from current vault
+DB_URL=$(envpocket get db-url -)
+echo "Connecting to: $DB_URL"
+```
+
 ### Working with Versions
 
 ```bash
@@ -222,23 +276,97 @@ done
 envpocket get backup-.env.production .env.production
 ```
 
+### Multi-Environment Workflow with Vaults
+
+```bash
+# Store production database configs in prod vault
+export EP_VAULT=prod/database
+envpocket save postgres-url .env.postgres
+envpocket save redis-url .env.redis
+envpocket save mongodb-url .env.mongo
+
+# Store staging database configs in staging vault
+export EP_VAULT=staging/database
+envpocket save postgres-url .env.postgres
+envpocket save redis-url .env.redis
+
+# Same key names, different vaults = no conflicts!
+envpocket get postgres-url - --vault prod/database
+envpocket get postgres-url - --vault staging/database
+
+# List all database vaults
+envpocket list --vaults
+```
+
+### Service-Based Organization
+
+```bash
+# Organize by microservice
+envpocket save stripe-key .env --vault payments/prod
+envpocket save twilio-key .env --vault notifications/prod
+envpocket save sendgrid-key .env --vault email/prod
+
+# Store development versions separately
+envpocket save stripe-key .env --vault payments/dev
+envpocket save twilio-key .env --vault notifications/dev
+
+# Quick switching between environments
+export EP_VAULT=payments/prod
+envpocket list  # Shows only production payment keys
+
+export EP_VAULT=payments/dev
+envpocket list  # Shows only development payment keys
+```
+
+### Team-Based Vault Isolation
+
+```bash
+# Frontend team vault
+envpocket save next-env .env --vault team-frontend/prod
+envpocket save react-env .env --vault team-frontend/staging
+
+# Backend team vault
+envpocket save api-keys .env --vault team-backend/prod
+envpocket save db-config .env --vault team-backend/staging
+
+# DevOps team has access to all vaults
+envpocket list --vaults  # Shows all team vaults
+```
+
+### Regional Deployment with Vaults
+
+```bash
+# US East region
+envpocket save app-config .env --vault prod/us-east/app
+envpocket save db-config .env --vault prod/us-east/db
+
+# EU West region
+envpocket save app-config .env --vault prod/eu-west/app
+envpocket save db-config .env --vault prod/eu-west/db
+
+# Deploy to specific region
+export EP_VAULT=prod/us-east/app
+envpocket get app-config .env
+./deploy.sh us-east-1
+```
+
 ### Team Collaboration Workflow
 
 ```bash
-# Team lead exports production environment
-envpocket export production-env --password "team-secret-2024"
+# Team lead exports production environment from vault
+envpocket export production-env --password "team-secret-2024" --vault prod
 
 # Commit encrypted file to repository
 git add production-env.envpocket
 git commit -m "Update production environment configuration"
 git push
 
-# Team member pulls and imports
+# Team member pulls and imports to their vault
 git pull
-envpocket import production-env production-env.envpocket --password "team-secret-2024"
+envpocket import production-env production-env.envpocket --password "team-secret-2024" --vault prod
 
 # Now team member can use the environment
-envpocket get production-env .env
+envpocket get production-env .env --vault prod
 ```
 
 ### Secure Environment Distribution
@@ -272,10 +400,12 @@ envpocket export app-prod --password "prod-team-pass" app-prod.envpocket
 envpocket implements strict namespace isolation to ensure it only touches its own keychain entries:
 
 - **Mandatory Prefix System**: All entries are prefixed with `envpocket:` (current) or `envpocket-history:` (versions)
+- **Vault Namespacing**: When using vaults, entries use format `envpocket:<vault>::<key>` for complete isolation
 - **Filtered Operations**: List operations only process entries with envpocket prefixes, ignoring all other keychain items
 - **Exact Matching**: All keychain operations (read/write/delete) use exact account matching with prefixed keys - no wildcard queries at the keychain API level
+- **Vault Scoping**: All operations are vault-scoped when a vault is specified, preventing cross-vault access
 
-This design guarantees that envpocket cannot access or modify any keychain entries created by other applications.
+This design guarantees that envpocket cannot access or modify any keychain entries created by other applications, and that vaults provide true isolation between different namespaces.
 
 ### Advanced Security Hardening
 
@@ -292,18 +422,38 @@ These features require an Apple Developer account but provide additional securit
 
 ### Storage Structure
 
-- **Current Version**: Stored as `envpocket:<key>`
-- **History Versions**: Stored as `envpocket-history:<key>:<timestamp>`
+**Without Vaults (Default Namespace):**
+- **Current Version**: `envpocket:<key>`
+- **History Versions**: `envpocket-history:<key>:<timestamp>`
+
+**With Vaults:**
+- **Current Version**: `envpocket:<vault>::<key>`
+- **History Versions**: `envpocket-history:<vault>::<key>:<timestamp>`
+- **Separator**: `::` (double colon) allows `/` in vault names
+- **Examples**:
+  - `envpocket:prod/sql::database-url`
+  - `envpocket-history:prod/sql::database-url:2025-01-17T10:30:00Z`
+
+**Metadata:**
 - **Timestamps**: ISO 8601 format for precise versioning
-- **Metadata**: Original file paths and modification times preserved
+- **Original file paths** and modification times preserved
+- **Vault context** included in export/import metadata
 
 ### Keychain Item Type
 
 Files are stored as generic password items (`kSecClassGenericPassword`) with:
-- Account: Prefixed key name
-- Data: File contents as binary
-- Label: Original file path
-- Comment: Last modification timestamp
+- **Account**: Prefixed key name with optional vault namespace (`envpocket:[vault::]<key>`)
+- **Data**: File contents as binary
+- **Label**: Original file path or `"(direct value)"` for set command
+- **Comment**: Last modification timestamp
+
+### Vault Isolation
+
+- Keys in different vaults are **completely isolated**
+- Same key name can exist in multiple vaults without conflict
+- List operations are vault-scoped (only show keys in current vault)
+- History is vault-specific (each vault maintains independent version history)
+- Delete operations only affect keys within the specified vault
 
 ## Troubleshooting
 

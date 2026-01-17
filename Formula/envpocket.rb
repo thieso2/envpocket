@@ -23,10 +23,10 @@
 class Envpocket < Formula
   desc "Secure environment file storage for macOS using the native keychain with team sharing"
   homepage "https://github.com/thieso2/homebrew-envpocket"
-  url "https://github.com/thieso2/homebrew-envpocket/releases/download/v0.5.5/envpocket-macos.tar.gz"
-  sha256 3c07e22f2d65b9f5840848750994591da14b0a462ec89e9f35c3a92a25569ce6
+  url "https://github.com/thieso2/homebrew-envpocket/releases/download/v0.5.6/envpocket-macos.tar.gz"
+  sha256 "cad2917e6c84868b44aa0ec3a70a4c35d52dcefb632b989b3f2f125ae2627433"
   license "MIT"
-  version 0.5.5
+  version "0.5.6"
 
   depends_on :macos
 
@@ -37,7 +37,7 @@ class Envpocket < Formula
   test do
     # Test that the binary runs and shows usage
     assert_match "Usage:", shell_output("#{bin}/envpocket 2>&1", 1)
-    
+
     # Test the list command (should work without any saved keys)
     assert_match(/envpocket entries|No envpocket entries/, shell_output("#{bin}/envpocket list"))
   end

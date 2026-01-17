@@ -125,14 +125,14 @@ echo "Updating Formula/envpocket.rb..."
 echo "  Version: $VERSION"
 echo "  SHA256: $SHA256"
 
-# Update version
-sed -i '' "s/version \".*\"/version \"$VERSION\"/" Formula/envpocket.rb
+# Update version (handle both quoted and unquoted)
+sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$VERSION\"/" Formula/envpocket.rb
 
 # Update URL
 sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
 
-# Update SHA256
-sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Formula/envpocket.rb
+# Update SHA256 (handle both quoted and unquoted)
+sed -i '' "s/^[[:space:]]*sha256[[:space:]].*/  sha256 \"$SHA256\"/" Formula/envpocket.rb
 
 echo "✓ Formula updated"
 echo ""
@@ -187,9 +187,9 @@ fi
 # Update formula
 echo ""
 echo "→ Updating Homebrew formula..."
-sed -i '' "s/version \".*\"/version \"$NEW_VERSION\"/" Formula/envpocket.rb
+sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$NEW_VERSION\"/" Formula/envpocket.rb
 sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$NEW_VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
-sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Formula/envpocket.rb
+sed -i '' "s/^[[:space:]]*sha256[[:space:]].*/  sha256 \"$SHA256\"/" Formula/envpocket.rb
 
 # Commit and push
 echo ""

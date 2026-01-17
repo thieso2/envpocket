@@ -13,11 +13,18 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-testing.git", from: "0.10.0")
+        .package(url: "https://github.com/apple/swift-testing.git", from: "0.10.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0")
     ],
     targets: [
         .executableTarget(
-            name: "EnvPocket"
+            name: "EnvPocket",
+            dependencies: [
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            swiftSettings: [
+                .unsafeFlags(["-parse-as-library"])
+            ]
         ),
         .testTarget(
             name: "EnvPocketTests",

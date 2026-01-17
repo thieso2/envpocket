@@ -58,6 +58,6 @@ func testBinaryExecutable() throws {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     let output = String(data: data, encoding: .utf8) ?? ""
 
-    #expect(process.terminationStatus == 1)
-    #expect(output.contains("Usage:"))
+    #expect(process.terminationStatus == 0)
+    #expect(output.contains("USAGE:"))
 }

@@ -54,38 +54,38 @@ class EnvPocket {
     func saveFile(key: String, filePath: String) -> Bool {
         let account = prefixedKey(key)
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
-            print("Error: Could not read file at \(filePath)")
+            UserMessage.fileReadError(filePath).display()
             return false
         }
-        
+
         // Get absolute path for storage
         let fileURL = URL(fileURLWithPath: filePath)
         let absolutePath = fileURL.path
-        
+
         // Get current version if it exists and save to history
         let (currentData, currentAttributes, currentStatus) = keychain.load(account: account)
-        
+
         // If there's an existing version, save it to history with current timestamp
         if currentStatus == errSecSuccess,
            let currentData = currentData {
             let timestamp = Date()
             let historyAccount = historyKey(key, timestamp: timestamp)
-            
+
             // Preserve the original path from the current version if it exists
             let originalPath = currentAttributes?[kSecAttrLabel as String] as? String ?? absolutePath
-            
+
             let historyStatus = keychain.save(
                 account: historyAccount,
                 data: currentData,
                 label: originalPath,
                 comment: nil
             )
-            
+
             if historyStatus != errSecSuccess {
-                print("Warning: Failed to save history: \(historyStatus)")
+                UserMessage.warning("Failed to save history: \(KeychainError(status: historyStatus).userMessage)").display()
             }
         }
-        
+
         // Now save the new version as current with file path
         let newTimestamp = Date()
         let status = keychain.save(
@@ -94,15 +94,15 @@ class EnvPocket {
             label: absolutePath,
             comment: "Last modified: \(getDateFormatter().string(from: newTimestamp))"
         )
-        
+
         if status == errSecSuccess {
-            print("File saved to Keychain under key '\(key)' from \(absolutePath)")
+            UserMessage.fileSaved(key, absolutePath).display()
             if currentStatus == errSecSuccess {
-                print("Previous version backed up to history")
+                UserMessage.previousVersionBackedUp().display()
             }
             return true
         } else {
-            print("Error saving to Keychain: \(status)")
+            UserMessage.keychainError(status).display()
             return false
         }
     }
@@ -110,7 +110,7 @@ class EnvPocket {
     func setValue(key: String, value: String) -> Bool {
         let account = prefixedKey(key)
         guard let data = value.data(using: .utf8) else {
-            print("Error: Could not encode value")
+            UserMessage.error("Could not encode value").display()
             return false
         }
 
@@ -134,7 +134,7 @@ class EnvPocket {
             )
 
             if historyStatus != errSecSuccess {
-                print("Warning: Failed to save history: \(historyStatus)")
+                UserMessage.warning("Failed to save history: \(KeychainError(status: historyStatus).userMessage)").display()
             }
         }
 
@@ -148,36 +148,36 @@ class EnvPocket {
         )
 
         if status == errSecSuccess {
-            print("Value saved to Keychain under key '\(key)'")
+            UserMessage.valueSaved(key).display()
             if currentStatus == errSecSuccess {
-                print("Previous version backed up to history")
+                UserMessage.previousVersionBackedUp().display()
             }
             return true
         } else {
-            print("Error saving to Keychain: \(status)")
+            UserMessage.keychainError(status).display()
             return false
         }
     }
 
-    func getFile(key: String, outputPath: String? = nil, versionIndex: Int? = nil) -> Bool {
+    func getFile(key: String, outputPath: String? = nil, versionIndex: Int? = nil, force: Bool = false) -> Bool {
         var account = prefixedKey(key)
-        
+
         // If version specified, get from history
         if let version = versionIndex {
             let historyItems = getHistoryForKey(key)
             if version >= 0 && version < historyItems.count {
                 account = historyItems[version]
             } else {
-                print("Error: Invalid version index. Use 'envpocket history \(key)' to see available versions.")
+                UserMessage.invalidVersionIndex(key).display()
                 return false
             }
         }
-        
+
         let (data, attributes, status) = keychain.load(account: account)
-        
+
         if status == errSecSuccess,
            let data = data {
-            
+
             // Determine output destination
             let finalOutputPath: String
             if let specifiedPath = outputPath {
@@ -198,24 +198,36 @@ class EnvPocket {
                     let url = URL(fileURLWithPath: originalPath)
                     finalOutputPath = url.lastPathComponent
                 } else {
-                    print("Error: No original filename stored for key '\(key)'. Please specify an output file.")
+                    UserMessage.noOriginalFilename(key).display()
                     return false
                 }
             }
-            
+
+            // Check if file exists and prompt for overwrite if not forced
+            if FileManager.default.fileExists(atPath: finalOutputPath) && !force {
+                UserMessage.fileExists(finalOutputPath).display()
+                print("Overwrite? (y/n): ", terminator: "")
+                fflush(stdout)
+                guard let response = readLine()?.lowercased(),
+                      response == "y" || response == "yes" else {
+                    UserMessage.operationCancelled().display()
+                    return false
+                }
+            }
+
             do {
                 try data.write(to: URL(fileURLWithPath: finalOutputPath))
-                print("File retrieved and saved to \(finalOutputPath)")
+                UserMessage.fileRetrieved(finalOutputPath).display()
                 if versionIndex != nil {
-                    print("(Retrieved historical version)")
+                    UserMessage.historicalVersion().display()
                 }
                 return true
             } catch {
-                print("Error writing file: \(error)")
+                UserMessage.fileWriteError(finalOutputPath, error).display()
                 return false
             }
         } else {
-            print("Error retrieving from Keychain: \(status)")
+            UserMessage.keychainError(status).display()
             return false
         }
     }
@@ -267,33 +279,33 @@ class EnvPocket {
         // Check if key contains wildcards
         if key.contains("*") || key.contains("?") {
             let matchedKeys = matchKeys(pattern: key)
-            
+
             if matchedKeys.isEmpty {
-                print("No keys found matching pattern '\(key)'")
+                UserMessage.noKeysMatching(key).display()
                 return false
             }
-            
+
             // Show matched keys and ask for confirmation
             if !force {
-                print("The following keys will be deleted:")
+                UserMessage.info("The following keys will be deleted:").display()
                 for matchedKey in matchedKeys {
                     let historyCount = getHistoryForKey(matchedKey).count
                     if historyCount > 0 {
-                        print("  • \(matchedKey) (plus \(historyCount) history version\(historyCount == 1 ? "" : "s"))")
+                        UserMessage.info("  • \(matchedKey) (plus \(historyCount) history version\(historyCount == 1 ? "" : "s"))").display()
                     } else {
-                        print("  • \(matchedKey)")
+                        UserMessage.info("  • \(matchedKey)").display()
                     }
                 }
-                
+
                 print("\nAre you sure you want to delete \(matchedKeys.count) key\(matchedKeys.count == 1 ? "" : "s")? (yes/no): ", terminator: "")
-                
+
                 if let response = readLine()?.lowercased(),
                    response != "yes" && response != "y" {
-                    print("Deletion cancelled.")
+                    UserMessage.deletionCancelled().display()
                     return false
                 }
             }
-            
+
             // Delete all matched keys
             var successCount = 0
             for matchedKey in matchedKeys {
@@ -301,8 +313,8 @@ class EnvPocket {
                     successCount += 1
                 }
             }
-            
-            print("Deleted \(successCount) key\(successCount == 1 ? "" : "s").")
+
+            UserMessage.keysDeleted(successCount).display()
             return successCount == matchedKeys.count
         } else {
             // Single key deletion
@@ -314,10 +326,10 @@ class EnvPocket {
         // Delete current version
         let account = prefixedKey(key)
         let status = keychain.delete(account: account)
-        
+
         // Delete all history entries for this key
         let (items, historyStatus) = keychain.list()
-        
+
         var historyDeleted = 0
         if historyStatus == errSecSuccess {
             for item in items {
@@ -329,32 +341,29 @@ class EnvPocket {
                 }
             }
         }
-        
+
         if status == errSecSuccess {
-            print("Deleted key '\(key)' from Keychain")
-            if historyDeleted > 0 {
-                print("Also deleted \(historyDeleted) history entries")
-            }
+            UserMessage.keyDeleted(key, historyCount: historyDeleted).display()
             return true
         } else if status == errSecItemNotFound {
-            print("Key '\(key)' not found")
+            UserMessage.keyNotFound(key).display()
             return false
         } else {
-            print("Error deleting from Keychain: \(status)")
+            UserMessage.keychainError(status).display()
             return false
         }
     }
     
     func listKeys() {
         let (items, status) = keychain.list()
-        
+
         guard status == errSecSuccess else {
-            print("Error listing Keychain items: \(status)")
+            UserMessage.listError(status).display()
             return
         }
-        
+
         var keyInfo: [String: (current: Date?, historyCount: Int, filePath: String?)] = [:]
-        
+
         for item in items {
             if let account = item[kSecAttrAccount as String] as? String {
                 if account.hasPrefix(prefix) && !account.hasPrefix(historyPrefix) {
@@ -366,10 +375,10 @@ class EnvPocket {
                         let dateStr = String(comment.dropFirst("Last modified: ".count))
                         modDate = getDateFormatter().date(from: dateStr)
                     }
-                    
+
                     // Extract file path from label
                     let filePath = item[kSecAttrLabel as String] as? String
-                    
+
                     if keyInfo[key] == nil {
                         keyInfo[key] = (current: modDate, historyCount: 0, filePath: filePath)
                     } else {
@@ -390,36 +399,36 @@ class EnvPocket {
                 }
             }
         }
-        
+
         if keyInfo.isEmpty {
-            print("No envpocket entries found.")
+            UserMessage.noEntriesFound().display()
         } else {
-            print("envpocket entries:")
+            UserMessage.info("envpocket entries:").display()
             let formatter = DateFormatter()
             formatter.dateStyle = .short
             formatter.timeStyle = .short
-            
+
             for (key, info) in keyInfo.sorted(by: { $0.key < $1.key }) {
                 var line = "  • \(key)"
-                
+
                 // Add file path if available
                 if let filePath = info.filePath {
                     // Decode URL encoding and show a more readable path
                     let decodedPath = filePath.removingPercentEncoding ?? filePath
                     line += " (\(decodedPath))"
                 }
-                
+
                 if let modDate = info.current {
                     line += " [modified: \(formatter.string(from: modDate))]"
                 }
-                
+
                 if info.historyCount > 0 {
                     line += " [\(info.historyCount) version\(info.historyCount == 1 ? "" : "s") in history]"
                 }
-                
-                print(line)
+
+                UserMessage.info(line).display()
             }
-            print("\nUse 'envpocket history <key>' to see version history")
+            UserMessage.info("\nUse 'envpocket history <key>' to see version history").display()
         }
     }
     
@@ -451,21 +460,21 @@ class EnvPocket {
     
     func showHistory(key: String) {
         let historyItems = getHistoryForKey(key)
-        
+
         if historyItems.isEmpty {
-            print("No history found for key '\(key)'")
+            UserMessage.noHistoryFound(key).display()
         } else {
-            print("History for '\(key)':")
+            UserMessage.info("History for '\(key)':").display()
             for (index, account) in historyItems.enumerated() {
                 let timestampStr = String(account.dropFirst((historyPrefix + key + ":").count))
                 if let date = getDateFormatter().date(from: timestampStr) {
                     let formatter = DateFormatter()
                     formatter.dateStyle = .medium
                     formatter.timeStyle = .medium
-                    print("  \(index): \(formatter.string(from: date))")
+                    UserMessage.info("  \(index): \(formatter.string(from: date))").display()
                 }
             }
-            print("\nUse 'envpocket get \(key) --version <index> <output_file>' to retrieve a specific version")
+            UserMessage.info("\nUse 'envpocket get \(key) --version <index> <output_file>' to retrieve a specific version").display()
         }
     }
     
@@ -507,21 +516,21 @@ class EnvPocket {
     func exportEncrypted(key: String, password: String) -> Data? {
         let account = prefixedKey(key)
         let (data, attributes, status) = keychain.load(account: account)
-        
+
         guard status == errSecSuccess, let data = data else {
-            print("Error: Key '\(key)' not found in keychain")
+            UserMessage.keyNotFound(key).display()
             return nil
         }
-        
+
         // Generate a random salt
         let salt = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
-        
+
         // Derive encryption key from password
         guard let symmetricKey = deriveKey(from: password, salt: salt) else {
-            print("Error: Failed to derive encryption key")
+            UserMessage.derivationError().display()
             return nil
         }
-        
+
         // Create metadata dictionary
         var metadata: [String: Any] = ["key": key]
         if let filePath = attributes?[kSecAttrLabel as String] as? String {
@@ -530,7 +539,7 @@ class EnvPocket {
         if let comment = attributes?[kSecAttrComment as String] as? String {
             metadata["lastModified"] = comment
         }
-        
+
         // Include history versions
         let historyItems = getHistoryForKey(key)
         if !historyItems.isEmpty {
@@ -550,38 +559,38 @@ class EnvPocket {
             }
             metadata["history"] = historyData
         }
-        
+
         // Combine file data and metadata
         let exportData: [String: Any] = [
             "data": data.base64EncodedString(),
             "metadata": metadata
         ]
-        
+
         guard let jsonData = try? JSONSerialization.data(withJSONObject: exportData, options: .prettyPrinted) else {
-            print("Error: Failed to serialize export data")
+            UserMessage.serializationError().display()
             return nil
         }
-        
+
         // Encrypt the JSON data
         do {
             let sealedBox = try AES.GCM.seal(jsonData, using: symmetricKey)
-            
+
             // Combine salt + nonce + ciphertext + tag for export
             var exportedData = Data()
             exportedData.append(salt)
             exportedData.append(contentsOf: sealedBox.nonce)
             exportedData.append(contentsOf: sealedBox.ciphertext)
             exportedData.append(contentsOf: sealedBox.tag)
-            
+
             // Add a magic header to identify the file format
             let header = "ENVPOCKET_V1".data(using: .utf8)!
             var finalData = Data()
             finalData.append(header)
             finalData.append(exportedData)
-            
+
             return finalData
         } catch {
-            print("Error: Encryption failed - \(error)")
+            UserMessage.encryptionError(error.localizedDescription).display()
             return nil
         }
     }
@@ -590,62 +599,62 @@ class EnvPocket {
         // Check for magic header
         let headerLength = "ENVPOCKET_V1".count
         guard encryptedData.count > headerLength else {
-            print("Error: Invalid encrypted file format")
+            UserMessage.invalidFileFormat().display()
             return false
         }
-        
+
         let header = String(data: encryptedData.prefix(headerLength), encoding: .utf8)
         guard header == "ENVPOCKET_V1" else {
-            print("Error: Invalid file header. This doesn't appear to be an envpocket export file.")
+            UserMessage.invalidFileHeader().display()
             return false
         }
-        
+
         // Remove header
         let dataWithoutHeader = encryptedData.dropFirst(headerLength)
-        
+
         // Extract components
         guard dataWithoutHeader.count > 32 + 12 else { // salt + nonce minimum
-            print("Error: Corrupted encrypted file")
+            UserMessage.corruptedFile().display()
             return false
         }
-        
+
         let salt = dataWithoutHeader.prefix(32)
         let nonceData = dataWithoutHeader.dropFirst(32).prefix(12)
         let remainder = dataWithoutHeader.dropFirst(32 + 12)
-        
+
         guard remainder.count > 16 else { // Need at least tag size
-            print("Error: Corrupted encrypted file")
+            UserMessage.corruptedFile().display()
             return false
         }
-        
+
         let ciphertext = remainder.dropLast(16)
         let tag = remainder.suffix(16)
-        
+
         // Derive decryption key
         guard let symmetricKey = deriveKey(from: password, salt: salt) else {
-            print("Error: Failed to derive decryption key")
+            UserMessage.derivationError().display()
             return false
         }
-        
+
         // Decrypt
         do {
             let nonce = try AES.GCM.Nonce(data: nonceData)
             let sealedBox = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
             let decryptedData = try AES.GCM.open(sealedBox, using: symmetricKey)
-            
+
             // Parse JSON
             guard let exportData = try? JSONSerialization.jsonObject(with: decryptedData) as? [String: Any],
                   let dataString = exportData["data"] as? String,
                   let fileData = Data(base64Encoded: dataString),
                   let metadata = exportData["metadata"] as? [String: Any] else {
-                print("Error: Failed to parse decrypted data")
+                UserMessage.parseError().display()
                 return false
             }
-            
+
             // Extract metadata
             let originalPath = metadata["originalPath"] as? String
             let lastModified = metadata["lastModified"] as? String
-            
+
             // Save current version to keychain
             let account = prefixedKey(key)
             let status = keychain.save(
@@ -654,12 +663,12 @@ class EnvPocket {
                 label: originalPath,
                 comment: lastModified
             )
-            
+
             guard status == errSecSuccess else {
-                print("Error: Failed to save to keychain - \(status)")
+                UserMessage.saveError(status).display()
                 return false
             }
-            
+
             // Import history if present
             if let history = metadata["history"] as? [[String: Any]] {
                 var importedHistory = 0
@@ -667,32 +676,32 @@ class EnvPocket {
                     if let histDataString = histEntry["data"] as? String,
                        let histData = Data(base64Encoded: histDataString),
                        let timestamp = histEntry["timestamp"] as? String {
-                        
+
                         let historyAccount = historyPrefix + key + ":" + timestamp
                         let histPath = histEntry["originalPath"] as? String
-                        
+
                         let histStatus = keychain.save(
                             account: historyAccount,
                             data: histData,
                             label: histPath,
                             comment: nil
                         )
-                        
+
                         if histStatus == errSecSuccess {
                             importedHistory += 1
                         }
                     }
                 }
-                
-                print("Successfully imported '\(key)' with \(importedHistory) history version\(importedHistory == 1 ? "" : "s")")
+
+                UserMessage.importSuccess(key, historyCount: importedHistory).display()
             } else {
-                print("Successfully imported '\(key)'")
+                UserMessage.importSuccess(key).display()
             }
-            
+
             return true
-            
+
         } catch {
-            print("Error: Decryption failed - incorrect password or corrupted file")
+            UserMessage.decryptionError().display()
             return false
         }
     }

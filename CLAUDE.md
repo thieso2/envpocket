@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-envpocket is a macOS command-line utility that securely stores environment files in the system keychain. It provides versioning support, complete history management, and encrypted team sharing capabilities.
+envpocket is a macOS command-line utility that securely stores environment files and values in the system keychain. It provides versioning support, complete history management, and encrypted team sharing capabilities.
+
+**Key Features:**
+- File-based storage (`save` command) for `.env` files and configuration files
+- Direct value storage (`set` command) for API keys, tokens, and secrets
+- Automatic version history on updates
+- Encrypted team sharing with export/import
+- Wildcard pattern matching for bulk operations
 
 ## Build and Development Commands
 
@@ -78,15 +85,20 @@ mise run run -- <command> [args]
 
 ### Testing
 ```bash
-# Run all tests
+# Run all tests (uses swift-testing framework)
 swift test
 
 # Run with verbose output
 swift test --verbose
 
-# Run specific test
-swift test --filter EnvPocketTests
+# Run specific test by name
+swift test --filter "Save file to keychain"
+
+# Run all tests in a specific file
+swift test --filter EnvPocketMockTests
 ```
+
+**Note:** This project uses Swift Testing (not XCTest). Tests use `@Test` attributes and `#expect` assertions.
 
 ## Architecture
 
@@ -94,20 +106,23 @@ Three-file modular architecture for separation of concerns:
 
 ### Source Files
 1. **`EnvPocket.swift`**: Core business logic class
-   - All keychain operations (save, get, delete, list, history)
-   - Encryption/decryption for team sharing (AES-256-GCM with PBKDF2)
-   - Wildcard pattern matching for bulk deletions
-   - Version history management
+   - File operations: `saveFile()`, `getFile()`
+   - Value operations: `setValue()` for direct key-value storage
+   - Management: `deleteFile()`, `listKeys()`, `showHistory()`
+   - Pattern matching: `matchKeys()` for wildcard operations
+   - Encryption: `exportEncrypted()`, `importEncrypted()` (AES-256-GCM with PBKDF2)
+   - Version history management with automatic backup
 
 2. **`KeychainProtocol.swift`**: Protocol-based keychain abstraction
-   - `KeychainProtocol`: Interface for keychain operations
-   - `RealKeychain`: Production implementation using Security framework
-   - `MockKeychain`: In-memory implementation for testing
+   - `KeychainProtocol`: Interface for keychain operations (save, load, delete, list)
+   - `RealKeychain`: Production implementation using macOS Security framework
+   - `MockKeychain`: In-memory implementation for testing (with `clear()` helper)
    - Enables dependency injection and testing without actual keychain access
 
 3. **`main.swift`**: CLI argument parsing and command dispatch
-   - Command enumeration and routing
-   - Interactive password prompting with hidden echo
+   - `Command` enum: save, get, set, delete, list, history, export, import
+   - Interactive password prompting with `readPassword()` (hidden echo via termios)
+   - Argument parsing for all command variations
    - Usage help text
    - Exit codes (0 for success, 1 for failure)
 
@@ -125,8 +140,8 @@ Three-file modular architecture for separation of concerns:
 - **Item Class**: `kSecClassGenericPassword`
 - **Attributes**:
   - `kSecAttrAccount`: Prefixed key name (account identifier)
-  - `kSecValueData`: File contents as binary data
-  - `kSecAttrLabel`: Original file path
+  - `kSecValueData`: File/value contents as binary data (UTF-8 encoded)
+  - `kSecAttrLabel`: Original file path OR `"(direct value)"` for set command
   - `kSecAttrComment`: Last modification timestamp (ISO8601 format)
 
 ### History Management
@@ -142,6 +157,32 @@ Three-file modular architecture for separation of concerns:
 - **Structure**: header + salt (32B) + nonce (12B) + ciphertext + tag (16B)
 - **Data Format**: JSON containing base64-encoded file data, metadata, and history
 
+## Command Usage Patterns
+
+### save vs set
+- **`save <key> <file>`**: For environment files, config files, certificates
+  - Stores entire file content
+  - Label preserves original file path
+  - Example: `envpocket save prod-env .env.production`
+
+- **`set <key> [value]`**: For API keys, tokens, passwords
+  - Stores string value directly (no file needed)
+  - Label is `"(direct value)"`
+  - Interactive prompt if value omitted (secure for secrets)
+  - Example: `envpocket set api-key` or `envpocket set api-key "sk-123"`
+
+### get Command
+- Retrieves both file-based and value-based entries
+- Use `-` as output to write to stdout: `envpocket get api-key -`
+- Use `--version <index>` to retrieve history: `envpocket get key --version 1 output.txt`
+- Omit output path to use original filename (file-based entries only)
+
+### delete Command
+- Supports wildcards: `envpocket delete test-* -f`
+- Single character wildcard: `envpocket delete v? -f` (matches v1, v2, not v10)
+- Use `-f` flag to skip confirmation prompt
+- Cascade deletes all history entries
+
 ## Common Development Patterns
 
 ### Running Local Builds
@@ -150,18 +191,34 @@ When testing changes:
 swift build && .build/debug/envpocket list
 ```
 
-### Testing with Mock Keychain
-Tests use `MockKeychain` for isolated testing without touching the system keychain. When adding new functionality, inject the keychain dependency:
+### Testing with Swift Testing Framework
+The project uses **swift-testing** (not XCTest):
+
 ```swift
-let envPocket = EnvPocket(keychain: MockKeychain())
+import Testing
+@testable import EnvPocket
+
+@Test("Description of what this tests")
+func testSomething() {
+    let env = TestEnvironment()
+    let result = env.envPocket.saveFile(key: "test", filePath: "/path")
+    #expect(result == true)
+}
 ```
+
+**TestEnvironment class:**
+- Uses `MockKeychain` for isolated testing without touching system keychain
+- Setup in `init()`, cleanup in `deinit()`
+- Automatically creates/removes temp files
+- Each test gets fresh keychain state
 
 ### Adding New Commands
 1. Add command to `Command` enum in `main.swift`
 2. Add implementation method in `EnvPocket.swift`
 3. Add command handling in `main()` switch statement
-4. Update `usage()` help text
-5. Add tests in `EnvPocketTests.swift`
+4. Update `usage()` help text in `main.swift`
+5. Add tests in `EnvPocketMockTests.swift` using `@Test` and `#expect`
+6. Update README.md with usage examples
 
 ### Working with Keychain Queries
 All keychain operations use exact account matching with prefixed keys. Never use wildcard queries at the keychain API level - filtering is done in-memory after retrieving all items.
@@ -198,8 +255,10 @@ git push
 
 ## Code Quality Requirements
 
-- Compile without warnings
-- Maintain protocol-based abstraction for keychain
-- Preserve namespace isolation (all keys must have proper prefixes)
-- Exit with status 1 on all failures
-- Include descriptive error messages for users
+- **Swift 6.0**: Project uses Swift tools version 6.0
+- **No Warnings**: Must compile without warnings (`mise run lint` to check)
+- **Protocol Abstraction**: Maintain `KeychainProtocol` for testability
+- **Namespace Isolation**: All keys must have `envpocket:` or `envpocket-history:` prefixes
+- **Error Handling**: Exit with status 1 on failures, provide descriptive user messages
+- **Testing**: Use swift-testing framework with `@Test` and `#expect`
+- **Labels**: File-based entries use file path, value-based entries use `"(direct value)"`

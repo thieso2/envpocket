@@ -25,3 +25,10 @@ envpocket
 *.tmp
 temp/
 tmp/
+
+# mise/rtx
+.mise.local.toml
+.rtx.local.toml
+
+# Release artifacts
+envpocket-macos.tar.gz

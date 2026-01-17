@@ -1,0 +1,206 @@
+# mise configuration for envpocket
+# https://mise.jdx.dev/
+
+[tools]
+# swift is typically managed by Xcode, not mise
+
+[tasks.build]
+description = "Build debug version"
+run = "swift build"
+
+[tasks."build:release"]
+description = "Build optimized release version"
+run = "swift build -c release"
+
+[tasks.test]
+description = "Run all tests"
+run = "swift test"
+
+[tasks."test:verbose"]
+description = "Run tests with verbose output"
+run = "swift test --verbose"
+
+[tasks.clean]
+description = "Clean build artifacts"
+run = "swift package clean"
+
+[tasks.install]
+description = "Install to /usr/local/bin (requires sudo)"
+depends = ["build:release"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+sudo cp .build/release/envpocket /usr/local/bin/
+echo "✓ Installed envpocket to /usr/local/bin/"
+"""
+
+[tasks."install:local"]
+description = "Install to ~/.local/bin (no sudo required)"
+depends = ["build:release"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p ~/.local/bin
+cp .build/release/envpocket ~/.local/bin/
+echo "✓ Installed envpocket to ~/.local/bin/"
+echo "  Make sure ~/.local/bin is in your PATH"
+"""
+
+[tasks.run]
+description = "Run envpocket (usage: mise run run -- <args>)"
+run = "swift run envpocket"
+
+[tasks.lint]
+description = "Check for compilation warnings"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if swift build -c release 2>&1 | grep -i warning; then
+  echo "⚠️  Warnings found!"
+  exit 1
+else
+  echo "✓ No warnings found"
+fi
+"""
+
+[tasks.version]
+description = "Show current version from formula"
+run = """
+#!/usr/bin/env bash
+grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/'
+"""
+
+[tasks."release:archive"]
+description = "Create release archive for distribution"
+depends = ["clean", "build:release"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION=$(grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/')
+ARCHIVE="envpocket-macos.tar.gz"
+
+echo "Creating release archive for version $VERSION..."
+
+# Create archive
+tar -czf "$ARCHIVE" -C .build/release envpocket
+
+# Calculate SHA256
+SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+
+echo ""
+echo "✓ Created: $ARCHIVE"
+echo "  SHA256: $SHA256"
+echo ""
+echo "Next steps:"
+echo "  1. Create GitHub release: gh release create v$VERSION $ARCHIVE"
+echo "  2. Update Formula/envpocket.rb with new SHA256: $SHA256"
+echo "  3. Commit and push the formula update"
+"""
+
+[tasks."release:formula"]
+description = "Update formula with new version and SHA256"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+  echo "Usage: mise run release:formula <version> <sha256>"
+  echo "Example: mise run release:formula 0.4.2 abc123..."
+  exit 1
+fi
+
+VERSION="$1"
+SHA256="$2"
+
+echo "Updating Formula/envpocket.rb..."
+echo "  Version: $VERSION"
+echo "  SHA256: $SHA256"
+
+# Update version
+sed -i '' "s/version \".*\"/version \"$VERSION\"/" Formula/envpocket.rb
+
+# Update URL
+sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
+
+# Update SHA256
+sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Formula/envpocket.rb
+
+echo "✓ Formula updated"
+echo ""
+echo "Review changes with: git diff Formula/envpocket.rb"
+"""
+
+[tasks."release:publish"]
+description = "Full release workflow (interactive)"
+depends = ["test", "lint"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+CURRENT_VERSION=$(grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/')
+
+echo "Current version: $CURRENT_VERSION"
+echo -n "Enter new version: "
+read NEW_VERSION
+
+if [ -z "$NEW_VERSION" ]; then
+  echo "Error: Version required"
+  exit 1
+fi
+
+echo ""
+echo "Publishing version $NEW_VERSION..."
+echo ""
+
+# Clean and build
+echo "→ Cleaning and building..."
+mise run clean
+mise run build:release
+
+# Create archive
+echo ""
+echo "→ Creating release archive..."
+ARCHIVE="envpocket-macos.tar.gz"
+tar -czf "$ARCHIVE" -C .build/release envpocket
+SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+
+echo "  Archive: $ARCHIVE"
+echo "  SHA256: $SHA256"
+
+# Create GitHub release
+echo ""
+echo "→ Creating GitHub release..."
+if ! gh release create "v$NEW_VERSION" "$ARCHIVE" --title "v$NEW_VERSION" --generate-notes; then
+  echo "Error: Failed to create GitHub release"
+  exit 1
+fi
+
+# Update formula
+echo ""
+echo "→ Updating Homebrew formula..."
+sed -i '' "s/version \".*\"/version \"$NEW_VERSION\"/" Formula/envpocket.rb
+sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$NEW_VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
+sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Formula/envpocket.rb
+
+# Commit and push
+echo ""
+echo "→ Committing formula update..."
+git add Formula/envpocket.rb
+git commit -m "Update Homebrew formula to v$NEW_VERSION"
+git push
+
+echo ""
+echo "✓ Release v$NEW_VERSION published successfully!"
+echo ""
+echo "Users can now install with:"
+echo "  brew upgrade envpocket"
+"""
+
+[tasks.dev]
+description = "Development workflow: build and test"
+depends = ["build", "test"]
+
+[tasks.ci]
+description = "CI workflow: lint, test, build release"
+depends = ["lint", "test", "build:release"]

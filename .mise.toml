@@ -182,8 +182,13 @@ echo ""
 echo "Publishing version $NEW_VERSION..."
 echo ""
 
-# Clean and build
-echo "→ Cleaning and building..."
+# Update version in Formula FIRST (before building)
+echo "→ Updating version in Formula..."
+sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$NEW_VERSION\"/" Formula/envpocket.rb
+
+# Clean and build (will use NEW version from Formula)
+echo ""
+echo "→ Cleaning and building with version $NEW_VERSION..."
 mise run clean
 mise run build:release
 
@@ -205,10 +210,9 @@ if ! gh release create "v$NEW_VERSION" "$ARCHIVE" --title "v$NEW_VERSION" --gene
   exit 1
 fi
 
-# Update formula
+# Update formula with URL and SHA256
 echo ""
-echo "→ Updating Homebrew formula..."
-sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$NEW_VERSION\"/" Formula/envpocket.rb
+echo "→ Updating Formula with release URL and SHA256..."
 sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$NEW_VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
 sed -i '' "s/^[[:space:]]*sha256[[:space:]].*/  sha256 \"$SHA256\"/" Formula/envpocket.rb
 

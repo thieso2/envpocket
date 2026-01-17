@@ -140,23 +140,44 @@ echo "Review changes with: git diff Formula/envpocket.rb"
 """
 
 [tasks."release:publish"]
-description = "Full release workflow (interactive)"
+description = "Full release workflow (usage: mise run release:publish [VERSION])"
 depends = ["test", "lint"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-CURRENT_VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}')
+# Get current version from Formula (strip quotes)
+CURRENT_VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}' | tr -d '"')
 
 echo "Current version: $CURRENT_VERSION"
-echo -n "Enter new version: "
-read NEW_VERSION < /dev/tty
+
+# Get new version from argument or prompt
+if [ $# -ge 1 ]; then
+  NEW_VERSION="$1"
+  echo "New version (from argument): $NEW_VERSION"
+else
+  echo -n "Enter new version: "
+  read NEW_VERSION < /dev/tty
+fi
 
 if [ -z "$NEW_VERSION" ]; then
   echo "Error: Version required"
   exit 1
 fi
 
+# Validate version format (X.Y.Z)
+if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+[.][0-9]+[.][0-9]+$'; then
+  echo "Error: Version must be in format X.Y.Z (e.g., 0.5.3)"
+  exit 1
+fi
+
+# Compare versions - ensure new version is greater than current
+if [ "$(printf '%s\n' "$CURRENT_VERSION" "$NEW_VERSION" | sort -V | tail -1)" = "$CURRENT_VERSION" ]; then
+  echo "Error: New version ($NEW_VERSION) must be greater than current version ($CURRENT_VERSION)"
+  exit 1
+fi
+
+echo "✓ Version validation passed ($CURRENT_VERSION → $NEW_VERSION)"
 echo ""
 echo "Publishing version $NEW_VERSION..."
 echo ""

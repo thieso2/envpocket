@@ -29,7 +29,7 @@
 import Foundation
 
 enum Command: String {
-    case save, get, delete, list, history, export, `import`
+    case save, get, set, delete, list, history, export, `import`
 }
 
 func readPassword(prompt: String) -> String? {
@@ -59,6 +59,7 @@ func usage() {
     print("""
     Usage:
       envpocket save <key> <file>
+      envpocket set <key> [<value>]
       envpocket get <key> [<output_file>]
       envpocket get <key> --version <version_index> [<output_file>]
       envpocket delete <key> [-f]
@@ -67,8 +68,9 @@ func usage() {
       envpocket history <key>
       envpocket export <key> [--password <password>] [<output_file>]
       envpocket import <key> <encrypted_file> [--password <password>]
-    
+
     Notes:
+      - For 'set': stores a value directly (not from a file). If value is omitted, you'll be prompted
       - For 'delete': supports wildcards (* and ?). Use -f to skip confirmation
       - For 'get': if output_file is omitted, uses the original filename
       - Use '-' as output_file to write to stdout
@@ -94,7 +96,33 @@ func main() {
         if !envPocket.saveFile(key: args[2], filePath: args[3]) {
             exit(1)
         }
-        
+
+    case .set:
+        let key: String
+        let value: String
+
+        if args.count == 3 {
+            // Prompt for value
+            key = args[2]
+            print("Enter value for '\(key)': ", terminator: "")
+            guard let inputValue = readLine() else {
+                print("Error: No value provided")
+                exit(1)
+            }
+            value = inputValue
+        } else if args.count == 4 {
+            // Value provided as argument
+            key = args[2]
+            value = args[3]
+        } else {
+            usage()
+            exit(1)
+        }
+
+        if !envPocket.setValue(key: key, value: value) {
+            exit(1)
+        }
+
     case .get:
         if args.count == 3 {
             // Get with default output: envpocket get <key>

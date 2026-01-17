@@ -107,6 +107,58 @@ class EnvPocket {
         }
     }
     
+    func setValue(key: String, value: String) -> Bool {
+        let account = prefixedKey(key)
+        guard let data = value.data(using: .utf8) else {
+            print("Error: Could not encode value")
+            return false
+        }
+
+        // Get current version if it exists and save to history
+        let (currentData, currentAttributes, currentStatus) = keychain.load(account: account)
+
+        // If there's an existing version, save it to history with current timestamp
+        if currentStatus == errSecSuccess,
+           let currentData = currentData {
+            let timestamp = Date()
+            let historyAccount = historyKey(key, timestamp: timestamp)
+
+            // Preserve the original label from the current version if it exists
+            let originalLabel = currentAttributes?[kSecAttrLabel as String] as? String ?? "(direct value)"
+
+            let historyStatus = keychain.save(
+                account: historyAccount,
+                data: currentData,
+                label: originalLabel,
+                comment: nil
+            )
+
+            if historyStatus != errSecSuccess {
+                print("Warning: Failed to save history: \(historyStatus)")
+            }
+        }
+
+        // Now save the new version as current
+        let newTimestamp = Date()
+        let status = keychain.save(
+            account: account,
+            data: data,
+            label: "(direct value)",
+            comment: "Last modified: \(getDateFormatter().string(from: newTimestamp))"
+        )
+
+        if status == errSecSuccess {
+            print("Value saved to Keychain under key '\(key)'")
+            if currentStatus == errSecSuccess {
+                print("Previous version backed up to history")
+            }
+            return true
+        } else {
+            print("Error saving to Keychain: \(status)")
+            return false
+        }
+    }
+
     func getFile(key: String, outputPath: String? = nil, versionIndex: Int? = nil) -> Bool {
         var account = prefixedKey(key)
         

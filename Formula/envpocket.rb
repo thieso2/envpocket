@@ -23,10 +23,10 @@
 class Envpocket < Formula
   desc "Secure environment file storage for macOS using the native keychain with team sharing"
   homepage "https://github.com/thieso2/homebrew-envpocket"
-  url "https://github.com/thieso2/homebrew-envpocket/releases/download/v0.5.6/envpocket-macos.tar.gz"
-  sha256 "cad2917e6c84868b44aa0ec3a70a4c35d52dcefb632b989b3f2f125ae2627433"
+  url "https://github.com/thieso2/homebrew-envpocket/releases/download/v0.5.7/envpocket-macos.tar.gz"
+  sha256 "bc6f8a82307cc33f2fd832ab976a2b0680f07b56e19962937348f9ac0d8686bc"
   license "MIT"
-  version "0.5.6"
+  version "0.5.7"
 
   depends_on :macos
 

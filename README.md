@@ -70,6 +70,21 @@ Store a file in the keychain under a given key:
 envpocket save myapp-prod .env.production
 ```
 
+### Set a Value
+
+Store a value directly (without a file):
+
+```bash
+# With value as argument
+envpocket set api-key "sk-1234567890"
+
+# Or be prompted for the value (useful for secrets)
+envpocket set api-key
+# You'll be prompted: Enter value for 'api-key':
+```
+
+This is useful for storing API keys, tokens, or other simple values without creating a file first.
+
 ### Retrieve a File
 
 Get the latest version of a stored file:
@@ -158,6 +173,25 @@ envpocket list
 
 # Retrieve specific environment
 envpocket get app-staging .env
+```
+
+### Storing API Keys and Secrets
+
+```bash
+# Store API keys and tokens directly
+envpocket set openai-key "sk-proj-abc123..."
+envpocket set github-token "ghp_xyz789..."
+envpocket set db-password "super-secret-password"
+
+# Retrieve and use in scripts
+API_KEY=$(envpocket get openai-key -)
+curl -H "Authorization: Bearer $API_KEY" https://api.openai.com/v1/models
+
+# Update a value (old version automatically backed up)
+envpocket set openai-key "sk-proj-new-key..."
+
+# View history of changes
+envpocket history openai-key
 ```
 
 ### Working with Versions
@@ -297,10 +331,40 @@ For Swift build issues:
 
 ## Development
 
+### Using mise Task Runner
+
+This project includes [mise](https://mise.jdx.dev/) task definitions for common development workflows:
+
+```bash
+# Install mise (if not already installed)
+curl https://mise.run | sh
+
+# Build and test
+mise run dev
+
+# Build release version
+mise run build:release
+
+# Run tests
+mise run test
+
+# Install locally to ~/.local/bin
+mise run install:local
+
+# Check for warnings
+mise run lint
+
+# See all available tasks
+mise tasks
+```
+
 ### Running Tests
 
 ```bash
 swift test
+
+# Or with mise
+mise run test
 ```
 
 ### Debug Build
@@ -308,6 +372,9 @@ swift test
 ```bash
 swift build
 .build/debug/envpocket <command> [args]
+
+# Or with mise
+mise run build
 ```
 
 ### Project Structure

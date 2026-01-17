@@ -9,7 +9,7 @@ set -euo pipefail
 OUTPUT_FILE="Sources/EnvPocket/Version.swift"
 
 # Get version from Formula (supports both 'version "X.Y.Z"' and 'version X.Y.Z' formats)
-VERSION=$(grep -E '^\s*version\s+' Formula/envpocket.rb | awk '{print $2}' || echo "0.0.0")
+VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}' || echo "0.0.0")
 
 # Get git hash (short)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")

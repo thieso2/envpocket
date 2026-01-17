@@ -146,7 +146,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-CURRENT_VERSION=$(grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/')
+CURRENT_VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}')
 
 echo "Current version: $CURRENT_VERSION"
 echo -n "Enter new version: "

@@ -355,33 +355,61 @@ All keychain operations use exact account matching with prefixed keys. Never use
 
 ## Publishing and Releases
 
+### Homebrew Formula Management
+
+The project uses a **template-based approach** for the Homebrew Formula to ensure correct syntax:
+
+- **Template**: `Formula/envpocket.rb.template` contains placeholders `{{VERSION}}` and `{{SHA256}}`
+- **Script**: `scripts/update-formula.sh` replaces placeholders and generates `Formula/envpocket.rb`
+- **Benefit**: Guarantees proper quoting and avoids sed regex fragility
+
+**Manual Formula Update:**
+```bash
+# Update formula with specific version and SHA256
+./scripts/update-formula.sh 0.5.3 abc123def456...
+```
+
 ### Publishing a New Release (with mise)
 ```bash
-# Interactive release workflow (recommended)
-mise run release:publish
+# Recommended: Provide version as argument
+mise run release:publish 0.5.6
 
-# Manual steps:
+# Interactive: Will prompt for version
+mise run release:publish
+```
+
+**What it does:**
+1. Validates version format (X.Y.Z) and ensures it's > current version
+2. Runs tests and linting
+3. Updates Formula from template with new version
+4. Builds release binary (includes correct version)
+5. Creates GitHub release with binary archive
+6. Updates Formula with SHA256
+7. Commits and pushes Formula
+
+**Manual steps (if needed):**
+```bash
 # 1. Create release archive
 mise run release:archive
 
 # 2. Create GitHub release manually
-gh release create v0.4.2 envpocket-macos.tar.gz --title "v0.4.2" --generate-notes
+gh release create v0.5.6 envpocket-macos.tar.gz --title "v0.5.6" --generate-notes
 
 # 3. Update formula with new version and SHA256
-mise run release:formula 0.4.2 <sha256-from-archive>
+mise run release:formula 0.5.6 <sha256-from-archive>
 
 # 4. Commit and push
 git add Formula/envpocket.rb
-git commit -m "Update Homebrew formula to v0.4.2"
+git commit -m "Update Homebrew formula to v0.5.6"
 git push
 ```
 
 ### Release Checklist
 1. Ensure all tests pass: `mise run test`
 2. Ensure no warnings: `mise run lint`
-3. Update version if needed in `Formula/envpocket.rb`
-4. Run release workflow: `mise run release:publish`
-5. Verify Homebrew installation: `brew upgrade envpocket`
+3. Run release workflow: `mise run release:publish 0.5.6`
+4. Verify Homebrew installation: `brew upgrade envpocket`
+5. Verify version: `envpocket --version` should show `0.5.6`
 
 ## Code Quality Requirements
 

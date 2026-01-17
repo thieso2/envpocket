@@ -125,16 +125,9 @@ echo "Updating Formula/envpocket.rb..."
 echo "  Version: $VERSION"
 echo "  SHA256: $SHA256"
 
-# Update version (handle both quoted and unquoted)
-sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$VERSION\"/" Formula/envpocket.rb
+# Use template-based update script
+./scripts/update-formula.sh "$VERSION" "$SHA256"
 
-# Update URL
-sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
-
-# Update SHA256 (handle both quoted and unquoted)
-sed -i '' "s/^[[:space:]]*sha256[[:space:]].*/  sha256 \"$SHA256\"/" Formula/envpocket.rb
-
-echo "✓ Formula updated"
 echo ""
 echo "Review changes with: git diff Formula/envpocket.rb"
 """
@@ -182,12 +175,7 @@ echo ""
 echo "Publishing version $NEW_VERSION..."
 echo ""
 
-# Update version in Formula FIRST (before building)
-echo "→ Updating version in Formula..."
-sed -i '' "s/^[[:space:]]*version[[:space:]].*/  version \"$NEW_VERSION\"/" Formula/envpocket.rb
-
 # Clean and build (will use NEW version from Formula)
-echo ""
 echo "→ Cleaning and building with version $NEW_VERSION..."
 mise run clean
 mise run build:release
@@ -202,6 +190,11 @@ SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
 echo "  Archive: $ARCHIVE"
 echo "  SHA256: $SHA256"
 
+# Update Formula with version and SHA256 (from template)
+echo ""
+echo "→ Updating Formula from template..."
+./scripts/update-formula.sh "$NEW_VERSION" "$SHA256"
+
 # Create GitHub release
 echo ""
 echo "→ Creating GitHub release..."
@@ -209,12 +202,6 @@ if ! gh release create "v$NEW_VERSION" "$ARCHIVE" --title "v$NEW_VERSION" --gene
   echo "Error: Failed to create GitHub release"
   exit 1
 fi
-
-# Update formula with URL and SHA256
-echo ""
-echo "→ Updating Formula with release URL and SHA256..."
-sed -i '' "s|download/v.*/envpocket-macos.tar.gz|download/v$NEW_VERSION/envpocket-macos.tar.gz|" Formula/envpocket.rb
-sed -i '' "s/^[[:space:]]*sha256[[:space:]].*/  sha256 \"$SHA256\"/" Formula/envpocket.rb
 
 # Commit and push
 echo ""

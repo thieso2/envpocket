@@ -50,6 +50,9 @@ mise run install
 # Check for compilation warnings
 mise run lint
 
+# Generate version information (runs automatically before builds)
+mise run gen:version
+
 # List all available tasks
 mise tasks
 ```
@@ -101,6 +104,41 @@ swift test --filter EnvPocketMockTests
 
 **Note:** This project uses Swift Testing (not XCTest). Tests use `@Test` attributes and `#expect` assertions.
 
+## Version Management
+
+The project uses **dynamic version generation** to display different version strings for development and release builds:
+
+- **Release builds**: Show clean version number (e.g., `0.5.0`)
+- **Debug builds**: Show version with git hash (e.g., `0.5.0-dev+afd6729`)
+
+### How It Works
+
+1. **Version Source**: Version number is read from `Formula/envpocket.rb`
+2. **Generation Script**: `scripts/generate-version.sh` creates `Sources/EnvPocket/Version.swift` before each build
+3. **Build Integration**: All mise build tasks automatically run `gen:version` first
+4. **Git Ignored**: `Version.swift` is auto-generated and excluded from version control
+
+### Version Display
+
+```bash
+# Debug build shows git hash
+.build/debug/envpocket --version
+# Output: 0.5.0-dev+afd6729
+
+# Release build shows clean version
+.build/release/envpocket --version
+# Output: 0.5.0
+```
+
+### Updating Version
+
+To release a new version:
+1. Use `mise run release:publish` (interactive)
+2. Or manually update `version X.Y.Z` in `Formula/envpocket.rb`
+3. The version generation script will automatically pick up the new version on next build
+
+**Note**: Never manually edit `Sources/EnvPocket/Version.swift` - it's auto-generated.
+
 ## Architecture
 
 Four-file modular architecture for separation of concerns:
@@ -109,8 +147,9 @@ Four-file modular architecture for separation of concerns:
 1. **`EnvPocket.swift`**: Core business logic class
    - File operations: `saveFile()`, `getFile()`
    - Value operations: `setValue()` for direct key-value storage
-   - Management: `deleteFile()`, `listKeys()`, `showHistory()`
+   - Management: `deleteFile()`, `listKeys()`, `showHistory()`, `listVaults()`
    - Pattern matching: `matchKeys()` for wildcard operations
+   - Vault support: `parseVaultAndKey()` helper, vault-aware prefixing with `::`
    - Encryption: `exportEncrypted()`, `importEncrypted()` (AES-256-GCM with PBKDF2)
    - Version history management with automatic backup
 
@@ -127,18 +166,21 @@ Four-file modular architecture for separation of concerns:
    - Proper stderr routing for errors and warnings
 
 4. **`main.swift`**: CLI interface using ArgumentParser
-   - `@main EnvPocketCommand`: Main command with subcommands
+   - `@main EnvPocketCommand`: Main command with subcommands and vault documentation
    - Subcommands: Save, Set, Get, Delete, List, History, Export, Import
    - Type-safe argument parsing with @Argument, @Option, @Flag
+   - All commands support `--vault` option with `EP_VAULT` environment variable fallback
    - Interactive password prompting with `readPassword()` (hidden echo via termios)
    - Auto-generated help text and usage information
    - Exit codes (0 for success, 1 for failure)
 
 ### Key Design Patterns
 - **Protocol-Oriented Design**: `KeychainProtocol` enables testability through dependency injection
-- **Namespace Isolation**: All keychain entries use prefixes to prevent conflicts
+- **Namespace Isolation**: All keychain entries use prefixes (`envpocket:` or `envpocket-history:`) to prevent conflicts
+- **Vault Isolation**: Optional `::` separator allows vault namespacing while supporting `/` in vault names
 - **Atomic Operations**: Delete-then-add pattern ensures data consistency
 - **Version Preservation**: Current version automatically backed up before updates
+- **Dependency Injection**: EnvPocket accepts optional `vault` parameter, all commands resolve `--vault` flag > `EP_VAULT` env var > nil
 
 ## Storage Architecture
 

@@ -32,3 +32,6 @@ tmp/
 
 # Release artifacts
 envpocket-macos.tar.gz
+
+# Generated files
+Sources/EnvPocket/Version.swift

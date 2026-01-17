@@ -4,20 +4,28 @@
 [tools]
 # swift is typically managed by Xcode, not mise
 
+[tasks."gen:version"]
+description = "Generate version information"
+run = "./scripts/generate-version.sh"
+
 [tasks.build]
 description = "Build debug version"
+depends = ["gen:version"]
 run = "swift build"
 
 [tasks."build:release"]
 description = "Build optimized release version"
+depends = ["gen:version"]
 run = "swift build -c release"
 
 [tasks.test]
 description = "Run all tests"
+depends = ["gen:version"]
 run = "swift test"
 
 [tasks."test:verbose"]
 description = "Run tests with verbose output"
+depends = ["gen:version"]
 run = "swift test --verbose"
 
 [tasks.clean]
@@ -142,7 +150,7 @@ CURRENT_VERSION=$(grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.
 
 echo "Current version: $CURRENT_VERSION"
 echo -n "Enter new version: "
-read NEW_VERSION
+read NEW_VERSION < /dev/tty
 
 if [ -z "$NEW_VERSION" ]; then
   echo "Error: Version required"

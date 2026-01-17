@@ -34,7 +34,7 @@ struct EnvPocketCommand: ParsableCommand {
           Vault names support nesting with / (e.g., prod/sql/onprem)
           Keys in different vaults are completely isolated.
         """,
-        version: "0.5.0",
+        version: Version.current,
         subcommands: [
             Save.self,
             Set.self,

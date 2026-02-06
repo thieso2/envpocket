@@ -18,20 +18,30 @@ A secure command-line utility for macOS that stores environment files in the sys
 ### Using Homebrew (Recommended)
 
 ```bash
-brew install thieso2/envpocket
+brew install thieso2/tap/envpocket
 ```
 
 Or if you prefer to tap first:
 
 ```bash
-brew tap thieso2/envpocket
+brew tap thieso2/tap
 brew install envpocket
 ```
 
-### Using the Installation Script
+### Download Binary
+
+Download the latest release directly from [GitHub Releases](https://github.com/thieso2/envpocket/releases):
 
 ```bash
-curl -sSL https://github.com/thieso2/homebrew-envpocket/releases/latest/download/install.sh | bash
+# Download the latest release
+wget https://github.com/thieso2/envpocket/releases/latest/download/envpocket-macos.tar.gz
+
+# Extract and install
+tar xzf envpocket-macos.tar.gz
+sudo cp envpocket /usr/local/bin/
+
+# Verify installation
+envpocket --version
 ```
 
 ### Building from Source
@@ -44,8 +54,8 @@ curl -sSL https://github.com/thieso2/homebrew-envpocket/releases/latest/download
 
 ```bash
 # Clone the repository
-git clone https://github.com/thieso2/homebrew-envpocket.git
-cd homebrew-envpocket
+git clone https://github.com/thieso2/envpocket.git
+cd envpocket
 
 # Build the release version
 swift build -c release
@@ -409,7 +419,7 @@ This design guarantees that envpocket cannot access or modify any keychain entri
 
 ### Advanced Security Hardening
 
-For enhanced security features including code signing, notarization, and Hardened Runtime, see the [`hardening` branch](https://github.com/thieso2/homebrew-envpocket/tree/hardening). This branch includes:
+For enhanced security features including code signing, notarization, and Hardened Runtime, see the [`hardening` branch](https://github.com/thieso2/envpocket/tree/hardening). This branch includes:
 
 - Entitlements configuration for runtime restrictions
 - Code signing and notarization scripts  
@@ -530,19 +540,24 @@ mise run build
 ### Project Structure
 
 ```
-homebrew-envpocket/
-├── Package.swift           # Swift Package Manager manifest
+envpocket/
+├── Package.swift              # Swift Package Manager manifest
+├── VERSION                    # Version source (read by build scripts)
 ├── Sources/
 │   └── EnvPocket/
-│       └── main.swift     # Main application source
-└── Tests/
-    └── EnvPocketTests/
-        └── EnvPocketTests.swift
+│       ├── main.swift         # CLI interface (ArgumentParser)
+│       ├── EnvPocket.swift    # Core business logic
+│       ├── KeychainProtocol.swift  # Keychain abstraction
+│       └── ErrorTypes.swift   # User-facing error messages
+├── Tests/
+│   └── EnvPocketTests/
+│       └── EnvPocketMockTests.swift
+├── scripts/
+│   └── generate-version.sh   # Generates Version.swift from VERSION
+└── .github/
+    └── workflows/
+        └── release.yml        # CI: build, release, push formula to tap
 ```
-
-## Homebrew Formula
-
-This repository includes a Homebrew formula in the `Formula` directory for easy installation via Homebrew.
 
 ## Contributing
 

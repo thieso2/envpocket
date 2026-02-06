@@ -113,7 +113,7 @@ The project uses **dynamic version generation** to display different version str
 
 ### How It Works
 
-1. **Version Source**: Version number is read from `Formula/envpocket.rb`
+1. **Version Source**: Plain text `VERSION` file in repo root (e.g., `0.5.8`)
 2. **Generation Script**: `scripts/generate-version.sh` creates `Sources/EnvPocket/Version.swift` before each build
 3. **Build Integration**: All mise build tasks automatically run `gen:version` first
 4. **Git Ignored**: `Version.swift` is auto-generated and excluded from version control
@@ -133,8 +133,8 @@ The project uses **dynamic version generation** to display different version str
 ### Updating Version
 
 To release a new version:
-1. Use `mise run release:publish` (interactive)
-2. Or manually update `version X.Y.Z` in `Formula/envpocket.rb`
+1. Use `mise run release:publish` — updates `VERSION`, commits, tags, and pushes (CI handles the rest)
+2. Or manually edit the `VERSION` file
 3. The version generation script will automatically pick up the new version on next build
 
 **Note**: Never manually edit `Sources/EnvPocket/Version.swift` - it's auto-generated.
@@ -355,24 +355,14 @@ All keychain operations use exact account matching with prefixed keys. Never use
 
 ## Publishing and Releases
 
-### Homebrew Formula Management
+### Homebrew Tap
 
-The project uses a **template-based approach** for the Homebrew Formula to ensure correct syntax:
-
-- **Template**: `Formula/envpocket.rb.template` contains placeholders `{{VERSION}}` and `{{SHA256}}`
-- **Script**: `scripts/update-formula.sh` replaces placeholders and generates `Formula/envpocket.rb`
-- **Benefit**: Guarantees proper quoting and avoids sed regex fragility
-
-**Manual Formula Update:**
-```bash
-# Update formula with specific version and SHA256
-./scripts/update-formula.sh 0.5.3 abc123def456...
-```
+The Homebrew formula lives in a separate tap repository: `thieso2/homebrew-tap`. The release CI workflow automatically generates and pushes the formula there using `HOMEBREW_TAP_TOKEN`.
 
 ### Publishing a New Release (with mise)
 ```bash
 # Recommended: Provide version as argument
-mise run release:publish 0.5.6
+mise run release:publish 0.6.0
 
 # Interactive: Will prompt for version
 mise run release:publish
@@ -381,35 +371,17 @@ mise run release:publish
 **What it does:**
 1. Validates version format (X.Y.Z) and ensures it's > current version
 2. Runs tests and linting
-3. Updates Formula from template with new version
-4. Builds release binary (includes correct version)
-5. Creates GitHub release with binary archive
-6. Updates Formula with SHA256
-7. Commits and pushes Formula
-
-**Manual steps (if needed):**
-```bash
-# 1. Create release archive
-mise run release:archive
-
-# 2. Create GitHub release manually
-gh release create v0.5.6 envpocket-macos.tar.gz --title "v0.5.6" --generate-notes
-
-# 3. Update formula with new version and SHA256
-mise run release:formula 0.5.6 <sha256-from-archive>
-
-# 4. Commit and push
-git add Formula/envpocket.rb
-git commit -m "Update Homebrew formula to v0.5.6"
-git push
-```
+3. Updates `VERSION` file, commits, and pushes
+4. Creates and pushes git tag `vX.Y.Z`
+5. CI workflow triggers: builds binary, creates GitHub release, pushes formula to `thieso2/homebrew-tap`
 
 ### Release Checklist
 1. Ensure all tests pass: `mise run test`
 2. Ensure no warnings: `mise run lint`
-3. Run release workflow: `mise run release:publish 0.5.6`
-4. Verify Homebrew installation: `brew upgrade envpocket`
-5. Verify version: `envpocket --version` should show `0.5.6`
+3. Run release workflow: `mise run release:publish 0.6.0`
+4. Monitor CI: https://github.com/thieso2/envpocket/actions
+5. Verify Homebrew installation: `brew upgrade envpocket`
+6. Verify version: `envpocket --version` should show `0.6.0`
 
 ## Code Quality Requirements
 

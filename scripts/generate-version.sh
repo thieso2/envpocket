@@ -2,14 +2,20 @@
 set -euo pipefail
 
 # Script to generate Version.swift with dynamic version information
-# - Release builds: Show version from Formula/envpocket.rb
+# - Release builds: Show version from VERSION file
 # - Debug builds: Show version + git hash
 
 # Determine output file
 OUTPUT_FILE="Sources/EnvPocket/Version.swift"
 
-# Get version from Formula (supports both 'version "X.Y.Z"' and 'version X.Y.Z' formats)
-VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}' | tr -d '"' || echo "0.0.0")
+# Get version from VERSION file
+VERSION_FILE="VERSION"
+if [ -f "$VERSION_FILE" ]; then
+  VERSION=$(tr -d '[:space:]' < "$VERSION_FILE")
+else
+  echo "Warning: $VERSION_FILE not found, using 0.0.0"
+  VERSION="0.0.0"
+fi
 
 # Get git hash (short)
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")

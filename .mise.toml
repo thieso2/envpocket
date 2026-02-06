@@ -72,76 +72,20 @@ fi
 """
 
 [tasks.version]
-description = "Show current version from formula"
+description = "Show current version from VERSION file"
 run = """
 #!/usr/bin/env bash
-grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/'
-"""
-
-[tasks."release:archive"]
-description = "Create release archive for distribution"
-depends = ["clean", "build:release"]
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-
-VERSION=$(grep 'version "' Formula/envpocket.rb | sed 's/.*version "\\(.*\\)"/\\1/')
-ARCHIVE="envpocket-macos.tar.gz"
-
-echo "Creating release archive for version $VERSION..."
-
-# Create archive
-tar -czf "$ARCHIVE" -C .build/release envpocket
-
-# Calculate SHA256
-SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
-
-echo ""
-echo "✓ Created: $ARCHIVE"
-echo "  SHA256: $SHA256"
-echo ""
-echo "Next steps:"
-echo "  1. Create GitHub release: gh release create v$VERSION $ARCHIVE"
-echo "  2. Update Formula/envpocket.rb with new SHA256: $SHA256"
-echo "  3. Commit and push the formula update"
-"""
-
-[tasks."release:formula"]
-description = "Update formula with new version and SHA256"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [ $# -lt 2 ]; then
-  echo "Usage: mise run release:formula <version> <sha256>"
-  echo "Example: mise run release:formula 0.4.2 abc123..."
-  exit 1
-fi
-
-VERSION="$1"
-SHA256="$2"
-
-echo "Updating Formula/envpocket.rb..."
-echo "  Version: $VERSION"
-echo "  SHA256: $SHA256"
-
-# Use template-based update script
-./scripts/update-formula.sh "$VERSION" "$SHA256"
-
-echo ""
-echo "Review changes with: git diff Formula/envpocket.rb"
+cat VERSION
 """
 
 [tasks."release:publish"]
-description = "Full release workflow (usage: mise run release:publish [VERSION])"
+description = "Tag and push a new release (triggers CI workflow)"
 depends = ["test", "lint"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Get current version from Formula (strip quotes)
-CURRENT_VERSION=$(grep -E '^[[:space:]]*version[[:space:]]+' Formula/envpocket.rb | awk '{print $2}' | tr -d '"')
-
+CURRENT_VERSION=$(tr -d '[:space:]' < VERSION)
 echo "Current version: $CURRENT_VERSION"
 
 # Get new version from argument or prompt
@@ -172,54 +116,21 @@ fi
 
 echo "✓ Version validation passed ($CURRENT_VERSION → $NEW_VERSION)"
 echo ""
-echo "Publishing version $NEW_VERSION..."
-echo ""
 
-# Update Formula version FIRST (with placeholder SHA256)
-echo "→ Updating Formula with new version..."
-./scripts/update-formula.sh "$NEW_VERSION" "0000000000000000000000000000000000000000000000000000000000000000"
-
-# Clean and build (will use NEW version from Formula)
-echo ""
-echo "→ Cleaning and building with version $NEW_VERSION..."
-mise run clean
-mise run build:release
-
-# Create archive
-echo ""
-echo "→ Creating release archive..."
-ARCHIVE="envpocket-macos.tar.gz"
-tar -czf "$ARCHIVE" -C .build/release envpocket
-SHA256=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
-
-echo "  Archive: $ARCHIVE"
-echo "  SHA256: $SHA256"
-
-# Update Formula with real SHA256
-echo ""
-echo "→ Updating Formula with final SHA256..."
-./scripts/update-formula.sh "$NEW_VERSION" "$SHA256"
-
-# Create GitHub release
-echo ""
-echo "→ Creating GitHub release..."
-if ! gh release create "v$NEW_VERSION" "$ARCHIVE" --title "v$NEW_VERSION" --generate-notes; then
-  echo "Error: Failed to create GitHub release"
-  exit 1
-fi
-
-# Commit and push
-echo ""
-echo "→ Committing formula update..."
-git add Formula/envpocket.rb
-git commit -m "Update Homebrew formula to v$NEW_VERSION"
+# Update VERSION file
+echo "$NEW_VERSION" > VERSION
+git add VERSION
+git commit -m "Bump version to $NEW_VERSION"
 git push
 
+# Create and push tag (triggers release workflow)
+echo "→ Creating tag v$NEW_VERSION..."
+git tag "v$NEW_VERSION"
+git push origin "v$NEW_VERSION"
+
 echo ""
-echo "✓ Release v$NEW_VERSION published successfully!"
-echo ""
-echo "Users can now install with:"
-echo "  brew upgrade envpocket"
+echo "✓ Tag v$NEW_VERSION pushed — CI will build & publish the release."
+echo "  Monitor: https://github.com/thieso2/envpocket/actions"
 """
 
 [tasks.dev]

@@ -16,64 +16,19 @@ permissions:
 
 jobs:
   release:
-    name: Create Release
+    name: Build & Release
     runs-on: macos-14
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+      with:
+        fetch-depth: 0
+
     - name: Setup Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
         xcode-version: '15.2'
-    
-    - name: Build Release Binary
-      run: |
-        swift build -c release
-        cp .build/release/envpocket ./envpocket
-        
-    - name: Create Installation Script
-      run: |
-        cat << 'EOF' > install.sh
-        #!/bin/bash
-        set -e
-        
-        echo "Installing envpocket..."
-        
-        # Download the latest release
-        DOWNLOAD_URL="https://github.com/thieso2/homebrew-envpocket/releases/latest/download/envpocket-macos.tar.gz"
-        
-        # Create temp directory
-        TEMP_DIR=$(mktemp -d)
-        trap "rm -rf $TEMP_DIR" EXIT
-        
-        # Download and extract
-        echo "Downloading envpocket..."
-        curl -sL "$DOWNLOAD_URL" -o "$TEMP_DIR/envpocket.tar.gz"
-        tar -xzf "$TEMP_DIR/envpocket.tar.gz" -C "$TEMP_DIR"
-        
-        # Install to /usr/local/bin
-        echo "Installing to /usr/local/bin..."
-        sudo mv "$TEMP_DIR/envpocket" /usr/local/bin/
-        sudo chmod +x /usr/local/bin/envpocket
-        
-        echo "envpocket installed successfully!"
-        echo "Run 'envpocket' to get started."
-        EOF
-        chmod +x install.sh
-        
-    - name: Create Archives
-      run: |
-        # Create tar.gz for macOS
-        tar -czf envpocket-macos.tar.gz envpocket
-        
-        # Create zip for macOS
-        zip envpocket-macos.zip envpocket
-        
-        # Calculate checksums
-        shasum -a 256 envpocket-macos.tar.gz > checksums.txt
-        shasum -a 256 envpocket-macos.zip >> checksums.txt
-        
+
     - name: Determine version
       id: version
       run: |
@@ -82,13 +37,38 @@ jobs:
         else
           VERSION="${{ github.ref_name }}"
         fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
-    - name: Create Release
+        # Strip leading 'v' for plain version number
+        PLAIN_VERSION="${VERSION#v}"
+        echo "tag=$VERSION" >> $GITHUB_OUTPUT
+        echo "plain=$PLAIN_VERSION" >> $GITHUB_OUTPUT
+
+    - name: Write VERSION file
+      run: echo "${{ steps.version.outputs.plain }}" > VERSION
+
+    - name: Generate Version.swift
+      run: ./scripts/generate-version.sh
+
+    - name: Build release binary
+      run: swift build -c release
+
+    - name: Create archives
+      id: archive
+      run: |
+        cp .build/release/envpocket ./envpocket
+        tar -czf envpocket-macos.tar.gz envpocket
+        zip envpocket-macos.zip envpocket
+
+        SHA256=$(shasum -a 256 envpocket-macos.tar.gz | awk '{print $1}')
+        echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+        shasum -a 256 envpocket-macos.tar.gz > checksums.txt
+        shasum -a 256 envpocket-macos.zip >> checksums.txt
+
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ steps.version.outputs.version }}
-        name: envpocket ${{ steps.version.outputs.version }}
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: envpocket ${{ steps.version.outputs.tag }}
         draft: false
         prerelease: false
         generate_release_notes: true
@@ -96,20 +76,56 @@ jobs:
           envpocket-macos.tar.gz
           envpocket-macos.zip
           checksums.txt
-          install.sh
         body: |
           ## Installation
-          
-          ### Using curl:
+
+          ### Using Homebrew (Recommended)
           ```bash
-          curl -sSL https://github.com/thieso2/homebrew-envpocket/releases/latest/download/install.sh | bash
+          brew install thieso2/tap/envpocket
           ```
-          
-          ### Manual installation:
-          1. Download `envpocket-macos.tar.gz` or `envpocket-macos.zip`
-          2. Extract the archive
-          3. Move `envpocket` to `/usr/local/bin/`
-          4. Make it executable: `chmod +x /usr/local/bin/envpocket`
-          
+
+          ### Manual installation
+          1. Download `envpocket-macos.tar.gz`
+          2. Extract: `tar xzf envpocket-macos.tar.gz`
+          3. Move to PATH: `sudo cp envpocket /usr/local/bin/`
+
           ## Checksums
-          See `checksums.txt` for SHA-256 checksums of the release archives.
+          See `checksums.txt` for SHA-256 checksums.
+
+    - name: Push formula to Homebrew tap
+      env:
+        TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      run: |
+        VERSION="${{ steps.version.outputs.plain }}"
+        SHA256="${{ steps.archive.outputs.sha256 }}"
+
+        # Generate formula
+        cat > /tmp/envpocket.rb << FORMULA
+        class Envpocket < Formula
+          desc "Secure environment file storage in macOS Keychain"
+          homepage "https://github.com/thieso2/envpocket"
+          url "https://github.com/thieso2/envpocket/releases/download/v#{version}/envpocket-macos.tar.gz"
+          sha256 "${SHA256}"
+          version "${VERSION}"
+          license "MIT"
+
+          def install
+            bin.install "envpocket"
+          end
+
+          test do
+            assert_match version.to_s, shell_output("#{bin}/envpocket --version")
+          end
+        end
+        FORMULA
+
+        # Clone tap repo and push formula
+        git clone "https://x-access-token:${TAP_TOKEN}@github.com/thieso2/homebrew-tap.git" /tmp/homebrew-tap
+        mkdir -p /tmp/homebrew-tap/Formula
+        cp /tmp/envpocket.rb /tmp/homebrew-tap/Formula/envpocket.rb
+        cd /tmp/homebrew-tap
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add Formula/envpocket.rb
+        git commit -m "Update envpocket to ${VERSION}"
+        git push

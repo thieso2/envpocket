@@ -27,7 +27,7 @@ jobs:
     - name: Setup Xcode
       uses: maxim-lobanov/setup-xcode@v1
       with:
-        xcode-version: '15.2'
+        xcode-version: '16.0'
 
     - name: Determine version
       id: version
@@ -104,7 +104,7 @@ jobs:
         class Envpocket < Formula
           desc "Secure environment file storage in macOS Keychain"
           homepage "https://github.com/thieso2/envpocket"
-          url "https://github.com/thieso2/envpocket/releases/download/v#{version}/envpocket-macos.tar.gz"
+          url "https://github.com/thieso2/envpocket/releases/download/v${VERSION}/envpocket-macos.tar.gz"
           sha256 "${SHA256}"
           version "${VERSION}"
           license "MIT"
@@ -118,6 +118,9 @@ jobs:
           end
         end
         FORMULA
+
+        # Remove leading whitespace from heredoc (indented for YAML readability)
+        sed -i '' 's/^        //' /tmp/envpocket.rb
 
         # Clone tap repo and push formula
         git clone "https://x-access-token:${TAP_TOKEN}@github.com/thieso2/homebrew-tap.git" /tmp/homebrew-tap

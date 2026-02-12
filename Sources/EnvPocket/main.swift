@@ -159,7 +159,7 @@ extension EnvPocketCommand {
         @Argument(help: "Key name to retrieve")
         var key: String
 
-        @Argument(help: "Output path (use '-' for stdout, omit to use original filename)",
+        @Argument(help: "Output path (omit for stdout, use '-' for stdout without trailing newline)",
                   completion: .file())
         var outputPath: String?
 

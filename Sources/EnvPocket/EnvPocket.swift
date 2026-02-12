@@ -197,7 +197,7 @@ class EnvPocket {
             }
         }
 
-        let (data, attributes, status) = keychain.load(account: account)
+        let (data, _, status) = keychain.load(account: account)
 
         if status == errSecSuccess,
            let data = data {
@@ -216,15 +216,13 @@ class EnvPocket {
                     finalOutputPath = specifiedPath
                 }
             } else {
-                // Use original filename from keychain
-                if let originalPath = attributes?[kSecAttrLabel as String] as? String {
-                    // Extract just the filename from the full path
-                    let url = URL(fileURLWithPath: originalPath)
-                    finalOutputPath = url.lastPathComponent
-                } else {
-                    UserMessage.noOriginalFilename(key).display()
-                    return false
+                // Default to stdout when no output path specified
+                FileHandle.standardOutput.write(data)
+                FileHandle.standardOutput.write("\n".data(using: .utf8)!)
+                if versionIndex != nil {
+                    FileHandle.standardError.write("(Retrieved historical version)\n".data(using: .utf8)!)
                 }
+                return true
             }
 
             // Check if file exists and prompt for overwrite if not forced
